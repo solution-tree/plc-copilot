@@ -1,4 +1,4 @@
-# One-Shot PRD: PLC Coach Service (MVP)
+# PRD: PLC Coach Service (MVP)
 
 **Document Purpose:** This Product Requirements Document (PRD) provides a complete, self-contained specification for building the Minimum Viable Product (MVP) of the PLC Coach Service. It is designed to be handed to an engineering team to implement from a new, empty repository without requiring additional context.
 
