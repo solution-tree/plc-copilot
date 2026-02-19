@@ -1,0 +1,110 @@
+flowchart TB
+  %% PLC Coach - Proposed Deployment (Hybrid: ECS/Fargate + EC2 for Qdrant)
+  %% Goal: "0 cold start" for users by keeping API tasks always running (min desired count > 0)
+
+  %% ========== Clients / Entry ==========
+  U[Users / Browsers] -->|HTTPS| ALB[Application Load Balancer]
+
+  %% ========== Compute Layer (Stateless) ==========
+  subgraph ECS["ECS Cluster (Fargate) — Stateless Compute"]
+    direction TB
+
+    API["API Service (Fargate Tasks)<br/>- min tasks >= 2 (always warm)<br/>- autoscale on CPU/reqs<br/>- multi-AZ"]:::svc
+
+    WORKERS["Worker Service (Fargate Tasks)<br/>- scale on queue depth<br/>- can keep min=1 if you want always-warm workers"]:::svc
+
+    REDACT["PII Redaction + Prompt Guardrails<br/>(log scrubbing, policy checks)"]:::comp
+    RAG["RAG Orchestrator<br/>(chunking, retrieval, rerank)"]:::comp
+  end
+
+  ALB --> API
+  API --> REDACT
+  API --> RAG
+
+  %% ========== Messaging / Async ==========
+  Q[("Queue: SQS / similar")]:::data
+  API -->|enqueue jobs| Q
+  Q -->|dequeue| WORKERS
+
+  %% ========== Data Stores ==========
+  subgraph DATA["Data Layer (AWS)"]
+    direction TB
+    RDS[("Relational DB: RDS Postgres<br/>users, sessions, roles, audit refs")]:::data
+    REDIS[("Redis: ElastiCache<br/>chat/session cache, rate limits")]:::data
+    S3[("S3<br/>docs, uploads, generated artifacts")]:::data
+  end
+
+  API --> RDS
+  API --> REDIS
+  API --> S3
+  WORKERS --> RDS
+  WORKERS --> S3
+  WORKERS --> REDIS
+
+  %% ========== Vector DB (Stateful) ==========
+  subgraph VEC["Vector Store (Stateful)"]
+    direction TB
+    QDRANT["Qdrant (EC2)<br/>- private subnets<br/>- encrypted volumes<br/>- HA later: multi-node"]:::state
+  end
+
+  RAG -->|vector search| QDRANT
+  WORKERS -->|embed + upsert| QDRANT
+
+  %% ========== External AI / Search APIs ==========
+  subgraph EXT["External Services"]
+    direction TB
+    OPENAI["OpenAI API<br/>(LLM + embeddings)<br/>- use enterprise/zero-retention where applicable"]:::ext
+    PERP["Perplexity / Web Search API<br/>(optional)<br/>- retrieval augmentation"]:::ext
+  end
+
+  RAG --> OPENAI
+  WORKERS --> OPENAI
+  API -->|optional search| PERP
+  WORKERS -->|optional search| PERP
+
+  %% ========== Observability / Compliance ==========
+  subgraph OBS["Observability & Compliance"]
+    direction TB
+    LOGS["Central Logs (CloudWatch)<br/>- PII redaction<br/>- retention policy"]:::obs
+    AUDIT["Audit Trail (DB + Logs)<br/>who/what/when for FERPA"]:::obs
+    SECRETS["Secrets Manager / Parameter Store<br/>keys, tokens"]:::obs
+    KMS["KMS<br/>encryption keys"]:::obs
+  end
+
+  API --> LOGS
+  WORKERS --> LOGS
+  API --> AUDIT
+  WORKERS --> AUDIT
+  API --> SECRETS
+  WORKERS --> SECRETS
+  RDS --> KMS
+  S3 --> KMS
+  QDRANT --> KMS
+
+  %% ========== Networking / Security Notes ==========
+  subgraph NET["Network / Security (Conceptual)"]
+    direction TB
+    VPC[VPC]
+    PUB["Public Subnets<br/>ALB only"]:::net
+    PRIV["Private Subnets<br/>ECS tasks, DB, Redis, Qdrant"]:::net
+    EGR["NAT / Egress Controls<br/>allowlisted outbound"]:::net
+  end
+
+  ALB --- PUB
+  API --- PRIV
+  WORKERS --- PRIV
+  RDS --- PRIV
+  REDIS --- PRIV
+  QDRANT --- PRIV
+  PRIV --- EGR
+  EGR --> OPENAI
+  EGR --> PERP
+
+  %% ========== Styles ==========
+  classDef svc fill:#e8f5ff,stroke:#1f6feb,stroke-width:1px,color:#0b1a2b;
+  classDef comp fill:#eefcf2,stroke:#2da44e,stroke-width:1px,color:#0b1a2b;
+  classDef data fill:#fff7e6,stroke:#d29922,stroke-width:1px,color:#0b1a2b;
+  classDef state fill:#ffeef0,stroke:#cf222e,stroke-width:1px,color:#0b1a2b;
+  classDef ext fill:#f6f8fa,stroke:#57606a,stroke-width:1px,color:#0b1a2b;
+  classDef obs fill:#f0f4ff,stroke:#8250df,stroke-width:1px,color:#0b1a2b;
+  classDef net fill:#f6ffed,stroke:#52c41a,stroke-width:1px,color:#0b1a2b;
