@@ -3,15 +3,202 @@
 **Source:** PRD v3 (`prd-v3.md`) | **Architecture:** `research/MVP_Diagram.mermaid`
 **Rules:** `.claude/api-design.md`, `.claude/ingestion.md`, `.claude/security.md`
 
-> Check off each item (`- [x]`) as it is completed. Do not skip ahead — phases are ordered by dependency.
+> Check off each item (`- [x]`) as it is completed.
 
 ---
 
-## Phase 0: Pre-Build
+## Stage 1: Foundation (Three Parallel Tracks)
 
-Everything in this phase must be completed **before application coding begins** (PRD §2.3, §9).
+These three tracks have **no dependencies on each other** and can be worked on simultaneously. All three must be complete before moving to Stage 2.
 
-### 0.1 Golden Dataset Assembly (PRD §2.3 — Phase 0-A)
+> **One caveat:** Track B (Corpus Scan) requires the S3 bucket to exist with the 25 PDFs uploaded. If the bucket doesn't exist yet, apply the S3 resource from Track A first (`terraform apply -target`), upload the PDFs, then continue both tracks in parallel.
+
+```
+Track A — Infrastructure (Terraform)    ──────────────────>  DONE
+Track B — Pre-Build (Dataset + Scan)    ── S3 bucket* ────>  DONE
+Track C — Project Foundation (Code)     ──────────────────>  DONE
+                                               │
+                                        Stage 2: CI/CD
+                                               │
+                                     Stage 3: Ingestion
+                                               │
+                                    Stage 4: Query Engine
+                                               │
+                                     Stage 5: Evaluation
+                                               │
+                                   Stage 6: Final Validation
+```
+
+---
+
+### Track A: Infrastructure — Terraform (PRD §6, §6.1, §7)
+
+All AWS resources defined in Infrastructure as Code. No manual console changes.
+Reference: `terraform-infra-setup.md` for file-level implementation details.
+
+#### A.1 Bootstrap (Manual, One-Time — before `terraform init`)
+
+- [ ] Create S3 bucket `plc-copilot-terraform-state` (versioning enabled, encryption enabled, block public access)
+- [ ] Create DynamoDB table `plc-copilot-terraform-locks` (partition key: `LockID`, type: String)
+
+#### A.2 Terraform Project Setup
+
+- [ ] Create `apps/api/terraform/` directory structure
+- [ ] Create `backend.tf` — S3 backend + DynamoDB state lock
+- [ ] Create `providers.tf` — AWS provider ~> 5.0, required versions, default tags
+- [ ] Create `variables.tf` — all input variables with MVP defaults
+- [ ] Create `locals.tf` — naming prefix, common tags
+- [ ] Create `data.tf` — AZ lookup, AMI for Qdrant EC2
+- [ ] Create `outputs.tf` — key outputs (CloudFront URL, ALB DNS, ECR URIs, RDS endpoint, Redis endpoint, Qdrant IP)
+- [ ] Create `terraform.tfvars.example` — example values (no secrets)
+- [ ] Add Terraform entries to `.gitignore`
+
+#### A.3 Networking — VPC (PRD §6.1)
+
+- [ ] Create `vpc.tf`:
+  - [ ] VPC with CIDR block (`10.0.0.0/16`)
+  - [ ] 6 subnets: public (2 AZs), private-app (2 AZs), private-data (2 AZs)
+  - [ ] CIDR reservations for Zone B and Zone C as comments
+  - [ ] Internet Gateway (for public subnets)
+  - [ ] NAT Gateway (single for MVP, `single_nat_gateway` variable to toggle multi-AZ later)
+  - [ ] Route tables for public and private subnets (data subnets have no NAT route)
+- [ ] Create `vpc-endpoints.tf`:
+  - [ ] S3 gateway endpoint (free, avoids NAT costs for S3 access)
+  - [ ] Secrets Manager interface endpoint
+- [ ] Create `vpc-flow-logs.tf`:
+  - [ ] VPC flow logs to CloudWatch
+
+#### A.4 Security Groups
+
+- [ ] Create `security-groups.tf` — 7 security groups:
+
+  | SG | Inbound From | Ports | Notes |
+  |---|---|---|---|
+  | `alb-sg` | CloudFront prefix list | 80 | ALB is HTTP-only; CloudFront handles HTTPS |
+  | `api-sg` | `alb-sg` | 8000 | API containers |
+  | `parser-sg` | `api-sg` | 5000 | Internal only |
+  | `reranker-sg` | `api-sg` | 8080 | Internal only |
+  | `rds-sg` | `api-sg`, `ingestion-sg` | 5432 | PostgreSQL |
+  | `redis-sg` | `api-sg` | 6379 | Redis |
+  | `qdrant-sg` | `api-sg`, `ingestion-sg` | 6333, 6334 | Qdrant HTTP + gRPC |
+
+#### A.5 Encryption & Secrets (PRD §7.2)
+
+- [ ] Create `kms.tf`:
+  - [ ] Single customer-managed KMS key for all encryption (S3, RDS, EBS, ElastiCache, Secrets Manager, CloudWatch Logs)
+  - [ ] Key policy with appropriate principal access
+- [ ] Create `secrets.tf`:
+  - [ ] Secrets Manager shells (no values in code, `ignore_changes` on secret versions):
+    - OpenAI API key
+    - RDS credentials
+    - Redis auth token
+    - App static API key
+  - [ ] IAM policies granting each service access only to the secrets it needs
+
+#### A.6 IAM Roles (PRD §7.1, §7.2)
+
+- [ ] Create `iam.tf` — 6 IAM roles:
+  - [ ] ECS execution role (shared, for pulling images + logging)
+  - [ ] API task role (read Qdrant, read/write RDS, read/write ElastiCache, read Secrets Manager)
+  - [ ] Ingestion task role (read S3, write Qdrant, write RDS, read Secrets Manager)
+  - [ ] Parser task role (minimal — no external access)
+  - [ ] Re-ranker task role (minimal — no external access)
+  - [ ] Qdrant EC2 instance role (SSM access, CloudWatch logs)
+
+#### A.7 Tenant Enclave Zone Boundaries (PRD §7.1)
+
+- [ ] Define IAM roles and security group boundaries for Zone A (Content — active for MVP)
+- [ ] Define IAM roles and security group boundaries for Zone B (Meetings — empty infrastructure)
+- [ ] Define IAM roles and security group boundaries for Zone C (Identity — empty infrastructure)
+- [ ] Document the zone isolation in Terraform comments for future developers
+
+#### A.8 Storage
+
+- [ ] Create `s3.tf` — 3 buckets:
+  - [ ] Books bucket (source PDFs) — encrypted, versioned, block public access, restricted to Ingestion Worker IAM role
+  - [ ] Logs bucket — for ALB/CloudFront access logs
+  - [ ] Qdrant backups bucket
+- [ ] Create `ecr.tf` — 4 ECR repositories:
+  - [ ] `plc-copilot/api`
+  - [ ] `plc-copilot/parser`
+  - [ ] `plc-copilot/reranker`
+  - [ ] `plc-copilot/ingestion`
+
+#### A.9 Data Stores (PRD §6)
+
+- [ ] Create `rds.tf`:
+  - [ ] PostgreSQL 15+ RDS instance (`db.t3.micro`) in private-data subnets
+  - [ ] Single-AZ for MVP (`rds_multi_az` variable for post-MVP toggle)
+  - [ ] Encryption at rest with KMS
+  - [ ] Automated backups (7-day retention)
+- [ ] Create `elasticache.tf`:
+  - [ ] Redis 7+ ElastiCache (`cache.t3.micro`) in private-data subnets
+  - [ ] Encryption at rest with KMS
+  - [ ] Encryption in transit enabled
+- [ ] Create `ec2-qdrant.tf`:
+  - [ ] EC2 instance (`t4g.medium` ARM) in private-data subnet
+  - [ ] Encrypted EBS gp3 volume (50 GB) with KMS
+  - [ ] User data script to install and start Qdrant
+  - [ ] SSM access only — no SSH
+
+#### A.10 Compute — ECS Fargate (PRD §6)
+
+- [ ] Create `service-discovery.tf`:
+  - [ ] Cloud Map private DNS namespace (`plc-copilot.local`)
+  - [ ] Service discovery entries for parser and re-ranker
+- [ ] Create `ecs.tf` — ECS cluster
+- [ ] Create `ecs-api.tf`:
+  - [ ] API task definition (FastAPI + Uvicorn)
+  - [ ] API ECS service + ALB target group registration
+- [ ] Create `ecs-parser.tf`:
+  - [ ] Parser task definition (llmsherpa/nlm-ingestor)
+  - [ ] Parser ECS service + Cloud Map service discovery (`parser.plc-copilot.local`)
+- [ ] Create `ecs-reranker.tf`:
+  - [ ] Re-ranker task definition (ms-marco-MiniLM-L-6-v2)
+  - [ ] Re-ranker ECS service + Cloud Map service discovery (`reranker.plc-copilot.local`)
+- [ ] Create `ecs-ingestion.tf`:
+  - [ ] Ingestion worker task definition only (on-demand, not always-on)
+
+#### A.11 Load Balancer & Edge (PRD §6.1)
+
+- [ ] Create `alb.tf`:
+  - [ ] Application Load Balancer in public subnets (HTTP-only — CloudFront handles HTTPS)
+  - [ ] Target group pointing to API Fargate service
+  - [ ] Health check path (`/health`)
+- [ ] Create `cloudfront.tf`:
+  - [ ] CloudFront distribution for HTTPS termination
+  - [ ] Auto-generated `*.cloudfront.net` URL (no custom domain needed for MVP)
+  - [ ] Origin = ALB
+- [ ] Create `waf.tf`:
+  - [ ] WAFv2 web ACL attached to CloudFront
+  - [ ] AWS managed rules + rate limiting (`waf_rate_limit` = 1000)
+
+#### A.12 Observability (PRD §6.1)
+
+- [ ] Create `cloudwatch.tf`:
+  - [ ] Log groups for each Fargate service
+  - [ ] CloudWatch dashboard tracking: API Request Rate, Error Rate, P95 Latency, Cache Hit Rate
+  - [ ] Metric alarms + SNS topic for alerts
+
+#### A.13 Terraform Validation
+
+- [ ] Run `terraform init` — succeeds with S3 backend
+- [ ] Run `terraform validate` — all files syntactically valid
+- [ ] Run `terraform plan` — shows ~60-80 resources, zero errors
+- [ ] Review security groups, IAM policies, and encryption settings in plan output
+- [ ] Confirm no secrets appear in any `.tf` file or state output
+- [ ] Run `terraform apply` — all resources created
+- [ ] Verify CloudFront distribution output shows `*.cloudfront.net` HTTPS URL
+- [ ] Verify all services are accessible from within the VPC
+- [ ] Verify no resources are publicly accessible except ALB/CloudFront
+
+---
+
+### Track B: Pre-Build (PRD §2.3, §9)
+
+Everything in this track must be completed **before application coding begins** (PRD §2.3, §9).
+
+#### B.1 Golden Dataset Assembly (PRD §2.3 — Phase 0-A)
 
 - [ ] Source real-world educator questions from the existing scraped question bank
 - [ ] Categorize each question as **In-Scope** (answerable from the 25 PLC books) or **Out-of-Scope** (outside the corpus)
@@ -19,10 +206,12 @@ Everything in this phase must be completed **before application coding begins** 
 - [ ] Define the expected behavior for each category:
   - In-Scope: grounded, cited answer
   - Out-of-Scope: hard refusal — *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."*
-- [ ] Structure the dataset as a JSON file (e.g., `tests/fixtures/golden_dataset.json`) with fields: `question`, `category`, `expected_answer` (null for Phase 0-A)
+- [ ] Structure the dataset as a JSON file (`tests/fixtures/golden_dataset.json`) with fields: `question`, `category`, `expected_answer` (null for now)
 - [ ] Check the golden dataset into the repository
 
-### 0.2 Pre-Build Corpus Scan (PRD §9)
+#### B.2 Pre-Build Corpus Scan (PRD §9)
+
+> **Prerequisite:** S3 bucket must exist with the 25 PDFs uploaded (see Track A.8).
 
 - [ ] Write the corpus scan script (`scripts/corpus_scan.py`) using PyMuPDF
 - [ ] For each of the 25 PDFs, collect:
@@ -38,11 +227,11 @@ Everything in this phase must be completed **before application coding begins** 
 
 ---
 
-## Phase 1: Project Foundation
+### Track C: Project Foundation
 
 Set up the Python project, dependencies, Docker configuration, and local development environment.
 
-### 1.1 Python Project Structure
+#### C.1 Python Project Structure
 
 - [ ] Create `apps/api/pyproject.toml` with project metadata and dependency groups
 - [ ] Create `apps/api/requirements.txt` (or use pyproject.toml exclusively)
@@ -71,7 +260,7 @@ Set up the Python project, dependencies, Docker configuration, and local develop
       └── __init__.py
   ```
 
-### 1.2 Core Dependencies
+#### C.2 Core Dependencies
 
 - [ ] Add FastAPI + Uvicorn
 - [ ] Add Pydantic v2
@@ -86,7 +275,7 @@ Set up the Python project, dependencies, Docker configuration, and local develop
 - [ ] Add RAGAS
 - [ ] Add development dependencies: pytest, ruff, httpx (for test client), pytest-asyncio
 
-### 1.3 Pydantic Schemas (PRD §5, `.claude/api-design.md`)
+#### C.3 Pydantic Schemas (PRD §5, `.claude/api-design.md`)
 
 - [ ] Create `src/schemas/request.py` — `QueryRequest` model with `query`, `user_id`, `session_id` (optional)
 - [ ] Create `src/schemas/response.py`:
@@ -99,13 +288,13 @@ Set up the Python project, dependencies, Docker configuration, and local develop
   - `book_title`, `authors`, `sku`, `chapter`, `section`, `page_number`, `chunk_type`, `reproducible_id`
   - `ChunkType = Literal["title", "body_text", "list", "table", "reproducible"]`
 
-### 1.4 Configuration & Secrets Loading
+#### C.4 Configuration & Secrets Loading
 
 - [ ] Create `src/config.py` — Pydantic Settings class loading from environment / AWS Secrets Manager
 - [ ] Implement AWS Secrets Manager integration (`src/utils/secrets.py`) per `.claude/security.md`
 - [ ] Ensure no secrets are hardcoded anywhere — all loaded at runtime
 
-### 1.5 Docker Configuration
+#### C.5 Docker Configuration
 
 - [ ] Create `apps/api/Dockerfile` for the API service (FastAPI + Uvicorn)
 - [ ] Create `apps/api/Dockerfile.reranker` for the re-ranker service (sentence-transformers model server)
@@ -116,14 +305,14 @@ Set up the Python project, dependencies, Docker configuration, and local develop
   - Qdrant (local, using official Docker image)
 - [ ] Verify `docker-compose up` starts all services and API responds to health check
 
-### 1.6 FastAPI Application Shell
+#### C.6 FastAPI Application Shell
 
 - [ ] Create `src/main.py` — FastAPI app with CORS, versioned router mount, health check endpoint
 - [ ] Create `src/api/routers/query.py` — stub `POST /api/v1/query` that returns a placeholder response
 - [ ] Add static API key middleware/dependency for endpoint protection (PRD §7.2)
 - [ ] Verify the stub endpoint works: `curl -X POST localhost:8000/api/v1/query`
 
-### 1.7 Database Setup
+#### C.7 Database Setup
 
 - [ ] Create `src/db/models.py` — SQLAlchemy ORM models for `books` and `chunks` tables (PRD §4.1)
 - [ ] Create `src/db/session.py` — async database session management
@@ -131,7 +320,7 @@ Set up the Python project, dependencies, Docker configuration, and local develop
 - [ ] Write initial migration: create `books` and `chunks` tables
 - [ ] Verify migration runs against local PostgreSQL
 
-### 1.8 Structured Logging (PRD §6.1)
+#### C.8 Structured Logging (PRD §6.1)
 
 - [ ] Create `src/utils/logging.py` — structured JSON logging configuration
 - [ ] Log fields: `user_id`, `retrieved_chunk_ids`, `latency_ms`, `was_cached` (per PRD §6.1)
@@ -140,141 +329,18 @@ Set up the Python project, dependencies, Docker configuration, and local develop
 
 ---
 
-## Phase 2: Infrastructure — Terraform (PRD §6, §6.1, §7)
+## Stage 2: CI/CD Pipeline (PRD §6.1)
 
-All AWS resources defined in Infrastructure as Code. No manual console changes.
+> **Depends on:** Track A (ECR repos, ECS services) + Track C (Dockerfiles, application code to build)
 
-### 2.1 Terraform Project Setup
-
-- [ ] Create `apps/api/terraform/` directory structure
-- [ ] Create `main.tf` — provider configuration (AWS), backend (S3 + DynamoDB for state locking)
-- [ ] Create `variables.tf` — input variables (region, environment, instance sizes, etc.)
-- [ ] Create `outputs.tf` — key outputs (ALB DNS, RDS endpoint, Qdrant IP, ECR URLs)
-- [ ] Create environment-specific variable files:
-  - [ ] `envs/dev.tfvars`
-  - [ ] `envs/staging.tfvars`
-  - [ ] `envs/prod.tfvars`
-
-### 2.2 Networking — VPC (PRD §6.1)
-
-- [ ] Create `vpc.tf`:
-  - [ ] VPC with CIDR block
-  - [ ] Public subnets (multi-AZ) — for ALB only
-  - [ ] Private subnets (multi-AZ) — for all services
-  - [ ] Internet Gateway (for public subnets)
-  - [ ] NAT Gateway (controlled egress for private subnets to reach OpenAI API)
-  - [ ] Route tables for public and private subnets
-- [ ] Create security groups:
-  - [ ] ALB security group (inbound HTTPS from internet)
-  - [ ] API service security group (inbound from ALB only)
-  - [ ] Qdrant security group (inbound from API and Ingestion only)
-  - [ ] RDS security group (inbound from API and Ingestion only)
-  - [ ] ElastiCache security group (inbound from API only)
-  - [ ] Re-ranker security group (inbound from API only)
-  - [ ] Parser security group (inbound from Ingestion only)
-
-### 2.3 Tenant Enclave Zone Boundaries (PRD §7.1)
-
-- [ ] Define IAM roles and security group boundaries for Zone A (Content — active for MVP)
-- [ ] Define IAM roles and security group boundaries for Zone B (Meetings — empty infrastructure)
-- [ ] Define IAM roles and security group boundaries for Zone C (Identity — empty infrastructure)
-- [ ] Document the zone isolation in Terraform comments for future developers
-
-### 2.4 Compute — ECS Fargate (PRD §6)
-
-- [ ] Create `ecs.tf`:
-  - [ ] ECS Cluster
-  - [ ] Task definitions for each service:
-    - [ ] API Service (FastAPI) — long-running service
-    - [ ] Re-Ranker Service (ms-marco-MiniLM-L-6-v2) — long-running service
-    - [ ] PDF Parser Service (llmsherpa/nlm-ingestor) — long-running service
-    - [ ] Ingestion Worker — triggered task (not always-on)
-  - [ ] ECS Services for long-running tasks with desired count
-  - [ ] Service discovery (so API can reach re-ranker and parser by DNS name)
-- [ ] Create Amazon ECR repositories for each Docker image:
-  - [ ] `plc-copilot/api`
-  - [ ] `plc-copilot/reranker`
-  - [ ] `plc-copilot/parser`
-  - [ ] `plc-copilot/ingestion-worker`
-
-### 2.5 Load Balancer (PRD §6.1)
-
-- [ ] Create `alb.tf`:
-  - [ ] Application Load Balancer in public subnets
-  - [ ] HTTPS listener (port 443) with ACM certificate
-  - [ ] Target group pointing to API Fargate service
-  - [ ] Health check path (`/health`)
-
-### 2.6 Data Stores (PRD §6)
-
-- [ ] Create `rds.tf`:
-  - [ ] PostgreSQL 15+ RDS instance in private subnets
-  - [ ] Multi-AZ disabled for MVP (cost savings), parameter noted for post-MVP
-  - [ ] Encryption at rest with KMS
-  - [ ] Automated backups enabled
-- [ ] Create `elasticache.tf`:
-  - [ ] Redis 7+ ElastiCache cluster in private subnets
-  - [ ] Encryption at rest with KMS
-  - [ ] Encryption in transit enabled
-- [ ] Create `qdrant.tf`:
-  - [ ] EC2 instance (`t4g.medium`) in private subnet
-  - [ ] EBS volume with KMS encryption
-  - [ ] User data script to install and start Qdrant
-  - [ ] Elastic IP (optional) or use private DNS
-- [ ] Create `s3.tf`:
-  - [ ] Private S3 bucket for source PDFs
-  - [ ] Versioning enabled
-  - [ ] Server-side encryption with KMS
-  - [ ] Bucket policy: access restricted to Ingestion Worker IAM role only
-  - [ ] Block all public access
-
-### 2.7 Security Services (PRD §7.2)
-
-- [ ] Create `secrets.tf`:
-  - [ ] Secrets Manager entries for: OpenAI API key, RDS credentials, static API key
-  - [ ] IAM policies granting each service access only to the secrets it needs
-- [ ] Create `kms.tf`:
-  - [ ] KMS key for encrypting RDS, ElastiCache, S3, and EBS (Qdrant)
-  - [ ] Key policy with appropriate principal access
-- [ ] Create `iam.tf`:
-  - [ ] IAM execution roles for each Fargate task
-  - [ ] Least-privilege policies per service:
-    - API: read Qdrant, read/write RDS, read/write ElastiCache, read Secrets Manager
-    - Ingestion Worker: read S3, write Qdrant, write RDS, read Secrets Manager, call parser service
-    - Parser: no external access needed
-    - Re-ranker: no external access needed
-
-### 2.8 Observability (PRD §6.1)
-
-- [ ] Create `cloudwatch.tf`:
-  - [ ] Log groups for each Fargate service
-  - [ ] CloudWatch dashboard tracking: API Request Rate, Error Rate, P95 Latency, Cache Hit Rate
-  - [ ] Alarms for error rate thresholds
-- [ ] Create `xray.tf`:
-  - [ ] X-Ray tracing configuration for Fargate tasks
-  - [ ] IAM permissions for X-Ray daemon
-
-### 2.9 Terraform Validation
-
-- [ ] Run `terraform init` successfully
-- [ ] Run `terraform validate` successfully
-- [ ] Run `terraform plan` against dev environment — review output
-- [ ] Run `terraform apply` for dev environment — all resources created
-- [ ] Verify all resources are accessible from within the VPC
-- [ ] Verify no resources are publicly accessible except ALB
-
----
-
-## Phase 3: CI/CD Pipeline (PRD §6.1)
-
-### 3.1 Linting & Testing Workflow
+### 2.1 Linting & Testing Workflow
 
 - [ ] Create `.github/workflows/ci.yml`:
   - [ ] Trigger on push to `main` and on pull requests
   - [ ] Steps: checkout, setup Python 3.11, install dependencies, run `ruff check .`, run `pytest`
   - [ ] Report test results
 
-### 3.2 Build & Deploy Workflow
+### 2.2 Build & Deploy Workflow
 
 - [ ] Create `.github/workflows/build-and-deploy.yml`:
   - [ ] Trigger on push to `main`
@@ -285,7 +351,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
     - [ ] Update ECS Fargate services to use new image
   - [ ] Use OIDC for AWS authentication (no long-lived keys)
 
-### 3.3 Terraform Workflows
+### 2.3 Terraform Workflows
 
 - [ ] Create `.github/workflows/terraform-plan.yml`:
   - [ ] Trigger on pull requests that change `apps/api/terraform/**`
@@ -294,7 +360,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
   - [ ] Trigger on merge to `main` for changes to `apps/api/terraform/**`
   - [ ] Run `terraform apply -auto-approve` (or require manual approval)
 
-### 3.4 Evaluation Workflow
+### 2.4 Evaluation Workflow
 
 - [ ] Create `.github/workflows/evaluate.yml`:
   - [ ] Manual trigger (workflow_dispatch)
@@ -303,14 +369,16 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 
 ---
 
-## Phase 4: Ingestion Pipeline (PRD §3.1, §4)
+## Stage 3: Ingestion Pipeline (PRD §3.1, §4)
 
-### 4.1 S3 PDF Retrieval
+> **Depends on:** Track A (S3, Qdrant, RDS, Parser Fargate), Track B (corpus scan findings), Track C (application code)
+
+### 3.1 S3 PDF Retrieval
 
 - [ ] Create `src/utils/s3.py` — functions to list and download PDFs from the private S3 bucket
 - [ ] Implement IAM-role-based authentication (no hardcoded credentials)
 
-### 4.2 Page Classification with PyMuPDF (PRD §3.1 — Step 1)
+### 3.2 Page Classification with PyMuPDF (PRD §3.1 — Step 1)
 
 - [ ] Create `src/ingestion/page_classifier.py`
 - [ ] For each page in a PDF, detect:
@@ -318,7 +386,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
   - [ ] Whether a text layer is present
 - [ ] Output: list of page objects with classification metadata
 
-### 4.3 Portrait Page Parsing with llmsherpa (PRD §3.1 — Step 2)
+### 3.3 Portrait Page Parsing with llmsherpa (PRD §3.1 — Step 2)
 
 - [ ] Create `src/ingestion/pdf_parser.py`
 - [ ] Implement HTTP client to call the self-hosted llmsherpa/nlm-ingestor service
@@ -326,7 +394,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Extract chapter and section names from document hierarchy
 - [ ] Output: list of parsed text chunks with structural metadata
 
-### 4.4 Landscape Page Processing with GPT-4o Vision (PRD §3.1 — Step 3)
+### 3.4 Landscape Page Processing with GPT-4o Vision (PRD §3.1 — Step 3)
 
 - [ ] Create `src/ingestion/vision_processor.py`
 - [ ] Render landscape pages as images (using PyMuPDF)
@@ -335,7 +403,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Assign `chunk_type = "reproducible"` and generate `reproducible_id`
 - [ ] Ensure OpenAI client uses zero-retention configuration
 
-### 4.5 Chunking Strategy
+### 3.5 Chunking Strategy
 
 - [ ] Create `src/ingestion/chunker.py`
 - [ ] Implement chunking logic that respects document hierarchy from llmsherpa output
@@ -343,14 +411,14 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Ensure each chunk has complete metadata conforming to `MetadataSchema` (PRD §4.3)
 - [ ] Validate no required metadata fields are missing (except optional fields set to `None`)
 
-### 4.6 Embedding Generation (PRD §6)
+### 3.6 Embedding Generation (PRD §6)
 
 - [ ] Create `src/ingestion/embedder.py`
 - [ ] Use `text-embedding-3-large` (3,072 dimensions) via OpenAI API
 - [ ] Implement batched embedding calls for efficiency
 - [ ] Enforce zero-retention on the OpenAI client
 
-### 4.7 Vector Storage — Qdrant (PRD §4.2)
+### 3.7 Vector Storage — Qdrant (PRD §4.2)
 
 - [ ] Create `src/vector_store/qdrant_client.py`
 - [ ] Create collection `plc_copilot_v1` with 3,072-dimension vectors
@@ -358,13 +426,13 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Implement upsert function: store vector + metadata payload per chunk
 - [ ] Implement delete-by-book function (for re-ingestion)
 
-### 4.8 Relational Storage — PostgreSQL (PRD §4.1)
+### 3.8 Relational Storage — PostgreSQL (PRD §4.1)
 
 - [ ] Implement functions to insert/update `books` table records
 - [ ] Implement functions to insert `chunks` table records with `qdrant_id` cross-reference
 - [ ] Ensure transactional consistency: if Qdrant upsert succeeds, PostgreSQL must also succeed
 
-### 4.9 Pipeline Orchestration
+### 3.9 Pipeline Orchestration
 
 - [ ] Create `src/ingestion/pipeline.py` — end-to-end orchestration:
   1. Fetch PDF from S3
@@ -378,7 +446,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Add structured logging at each step (no PII)
 - [ ] Create `scripts/run_ingestion.py` — CLI entry point: `python scripts/run_ingestion.py --book-sku <SKU>`
 
-### 4.10 Ingestion Validation
+### 3.10 Ingestion Validation
 
 - [ ] Ingest one test book end-to-end
 - [ ] Verify vectors exist in Qdrant with correct metadata payloads
@@ -389,9 +457,11 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 
 ---
 
-## Phase 5: Query Engine & API (PRD §3.2, §3.3, §5)
+## Stage 4: Query Engine & API (PRD §3.2, §3.3, §5)
 
-### 5.1 Session Cache — Redis (PRD §6)
+> **Depends on:** Stage 3 (ingested data in Qdrant + PostgreSQL), Track A (Redis, Re-ranker, ALB)
+
+### 4.1 Session Cache — Redis (PRD §6)
 
 - [ ] Create `src/cache/session_cache.py`
 - [ ] Implement session creation: generate UUID `session_id`, store original query + context
@@ -399,7 +469,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Set TTL on sessions (e.g., 15 minutes) to auto-expire stale clarification sessions
 - [ ] Verify Redis connectivity and operations
 
-### 5.2 Query Analysis — Ambiguity Detection (PRD §3.2)
+### 4.2 Query Analysis — Ambiguity Detection (PRD §3.2)
 
 - [ ] Create `src/core/query_analyzer.py`
 - [ ] Implement GPT-4o call to analyze incoming query for:
@@ -412,7 +482,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Return classification: `clear`, `ambiguous`, or `out_of_scope`
 - [ ] Enforce zero-retention on the OpenAI client
 
-### 5.3 Dynamic Metadata Filtering (PRD §3.2)
+### 4.3 Dynamic Metadata Filtering (PRD §3.2)
 
 - [ ] Extend query analysis to extract metadata filters from the query:
   - [ ] Book title references
@@ -421,16 +491,16 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Convert extracted filters to Qdrant filter conditions
 - [ ] Implement fallback: if filtered search returns < 3 results, retry without filters
 
-### 5.4 Hybrid Search — Semantic + Keyword (PRD §3.3)
+### 4.4 Hybrid Search — Semantic + Keyword (PRD §3.3)
 
 - [ ] Create `src/core/retriever.py`
 - [ ] **Semantic search**: embed the query with `text-embedding-3-large`, search Qdrant by vector similarity
 - [ ] **Keyword search**: full-text search against `chunks.text_content` in PostgreSQL
 - [ ] Combine results from both searches into a single candidate set
 - [ ] De-duplicate candidates that appear in both result sets
-- [ ] Apply dynamic metadata filters (from §5.3) to both searches
+- [ ] Apply dynamic metadata filters (from §4.3) to both searches
 
-### 5.5 Re-Ranking (PRD §3.3)
+### 4.5 Re-Ranking (PRD §3.3)
 
 - [ ] Create `src/core/reranker.py`
 - [ ] Implement HTTP client to call the self-hosted `cross-encoder/ms-marco-MiniLM-L-6-v2` service
@@ -438,7 +508,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Re-order candidates by re-ranker score
 - [ ] Select top-k chunks to pass to the answer generator
 
-### 5.6 Answer Generation (PRD §3.2)
+### 4.6 Answer Generation (PRD §3.2)
 
 - [ ] Create `src/core/generator.py`
 - [ ] Construct prompt with:
@@ -451,7 +521,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Enforce zero-retention on the OpenAI client
 - [ ] If second clarification follow-up is still ambiguous: answer with best interpretation and append interpretation statement (PRD §3.2: one-question hard limit)
 
-### 5.7 Query Engine Orchestration
+### 4.7 Query Engine Orchestration
 
 - [ ] Create `src/core/query_engine.py` — full query pipeline:
   1. Receive query + optional `session_id`
@@ -466,7 +536,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
   10. Log audit record to PostgreSQL
   11. Return `success` response
 
-### 5.8 API Endpoint Implementation (PRD §5)
+### 4.8 API Endpoint Implementation (PRD §5)
 
 - [ ] Implement `POST /api/v1/query` in `src/api/routers/query.py`:
   - [ ] Validate request body with `QueryRequest` Pydantic model
@@ -477,7 +547,7 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Add error handling and appropriate HTTP status codes
 - [ ] Add latency tracking
 
-### 5.9 Query Engine Integration Tests
+### 4.9 Query Engine Integration Tests
 
 - [ ] Test Flow A — Direct Answer: clear query → `success` response with sources
 - [ ] Test Flow B — Clarification: ambiguous query → `needs_clarification` → follow-up → `success`
@@ -490,16 +560,18 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 
 ---
 
-## Phase 6: Evaluation (PRD §2.3)
+## Stage 5: Evaluation (PRD §2.3)
 
-### 6.1 RAGAS Pipeline Setup
+> **Depends on:** Stage 4 (working API), Track B (golden dataset)
+
+### 5.1 RAGAS Pipeline Setup
 
 - [ ] Create `scripts/evaluate.py`
 - [ ] Integrate RAGAS library
 - [ ] Load the golden dataset from `tests/fixtures/golden_dataset.json`
 - [ ] Implement test harness: for each question, call `POST /api/v1/query` and capture response
 
-### 6.2 Reference-Free Evaluation (PRD §2.3 — Phase 0-B)
+### 5.2 Reference-Free Evaluation (PRD §2.3 — Phase 0-B)
 
 - [ ] Run RAGAS in reference-free mode against **in-scope** questions:
   - [ ] **Faithfulness**: Is the answer grounded in the retrieved context?
@@ -510,13 +582,13 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 - [ ] Generate evaluation report with per-question scores and aggregated metrics
 - [ ] Establish baseline thresholds for pass/fail
 
-### 6.3 Baseline Comparison
+### 5.3 Baseline Comparison
 
 - [ ] Run the same in-scope questions against a general-purpose GPT-4o (no RAG)
 - [ ] Compare Faithfulness and Relevancy scores: PLC Coach vs. baseline
 - [ ] Document the delta to validate the core hypothesis (PRD §2.1)
 
-### 6.4 Full Reference-Based Evaluation (PRD §2.3 — Phase 3)
+### 5.4 Full Reference-Based Evaluation (PRD §2.3 — Phase 3)
 
 - [ ] Obtain expert-authored reference answers for all in-scope questions
 - [ ] Add reference answers to the golden dataset
@@ -528,7 +600,9 @@ All AWS resources defined in Infrastructure as Code. No manual console changes.
 
 ---
 
-## Phase 7: Final Validation — Acceptance Criteria (PRD §8)
+## Stage 6: Final Validation — Acceptance Criteria (PRD §8)
+
+> **Depends on:** Everything. All stages must be complete.
 
 Each item below maps to a specific acceptance criterion from PRD §8. All must pass.
 
@@ -563,7 +637,7 @@ Each item below maps to a specific acceptance criterion from PRD §8. All must p
 
 ### AC-6: API Endpoint Live
 
-- [ ] `POST /api/v1/query` is accessible via a public URL (through ALB)
+- [ ] `POST /api/v1/query` is accessible via a public URL (through CloudFront)
 - [ ] Endpoint is protected by a static API key
 - [ ] Unauthorized requests are rejected
 
@@ -607,19 +681,19 @@ Each item below maps to a specific acceptance criterion from PRD §8. All must p
 
 ---
 
-## Quick Reference: Acceptance Criteria ↔ Phase Mapping
+## Quick Reference: Acceptance Criteria → Stage Mapping
 
 | AC # | Description | Covered In |
 |------|-------------|------------|
-| 1 | Infrastructure provisioned via Terraform | Phase 2 |
-| 2 | CI/CD pipeline functional | Phase 3 |
-| 3 | Corpus scan complete | Phase 0.2 |
-| 4 | Golden dataset assembled | Phase 0.1 |
-| 5 | Ingestion pipeline processes all 25 PDFs | Phase 4 |
-| 6 | API endpoint live and protected | Phase 5.8 |
-| 7 | Conditional clarification loop correct | Phase 5.7, 5.9 |
-| 7a | One-question hard limit enforced | Phase 5.6, 5.7 |
-| 8 | Out-of-scope detection works | Phase 5.2, 5.9 |
-| 9 | RAGAS evaluation functional | Phase 6 |
-| 10 | Source citations accurate | Phase 5.6, 5.9 |
-| 11 | Reproducible filtering works | Phase 4.4, 5.3, 5.9 |
+| 1 | Infrastructure provisioned via Terraform | Track A |
+| 2 | CI/CD pipeline functional | Stage 2 |
+| 3 | Corpus scan complete | Track B.2 |
+| 4 | Golden dataset assembled | Track B.1 |
+| 5 | Ingestion pipeline processes all 25 PDFs | Stage 3 |
+| 6 | API endpoint live and protected | Stage 4.8 |
+| 7 | Conditional clarification loop correct | Stage 4.7, 4.9 |
+| 7a | One-question hard limit enforced | Stage 4.6, 4.7 |
+| 8 | Out-of-scope detection works | Stage 4.2, 4.9 |
+| 9 | RAGAS evaluation functional | Stage 5 |
+| 10 | Source citations accurate | Stage 4.6, 4.9 |
+| 11 | Reproducible filtering works | Stage 3.4, 4.3, 4.9 |
