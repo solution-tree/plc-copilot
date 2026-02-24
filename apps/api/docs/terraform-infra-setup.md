@@ -118,3 +118,24 @@ Also add Terraform entries to `.gitignore`.
 ## Post-Implementation: Reset Context
 
 Per your request, after plan approval I will ask you to reset context before implementing — the plan file persists across sessions so I can pick it up fresh.
+
+---
+
+## Progress Log
+
+### 2026-02-23
+
+**Bootstrap — complete**
+- S3 bucket `plc-copilot-terraform-state` created manually (versioning + encryption + block public access).
+- DynamoDB table `plc-copilot-terraform-locks` created manually (partition key: `LockID`, type: String).
+
+**Step 1: Foundation — complete**
+- `backend.tf` — S3 remote state at `api/terraform.tfstate`, DynamoDB lock table wired in.
+- `providers.tf` — AWS provider `~> 5.0`, default tags (`Project`, `Environment`, `ManagedBy`) on all resources.
+- `variables.tf` — All input variables with MVP defaults; only `environment` and `alert_email` are required at apply time.
+- `locals.tf` — `local.prefix` (e.g. `plc-copilot-staging`) and `local.common_tags`.
+- `data.tf` — AZ lookup, latest AL2023 ARM64 AMI (for Qdrant t4g.medium), CloudFront managed prefix list, current account ID and region.
+
+**Up next**
+- Run `terraform init` from `apps/api/terraform/` to verify S3 backend connects.
+- Step 2: Networking — `vpc.tf`, `vpc-endpoints.tf`, `vpc-flow-logs.tf`.
