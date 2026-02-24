@@ -200,13 +200,13 @@ Everything in this track must be completed **before application coding begins** 
 
 #### B.1 Golden Dataset Assembly (PRD §2.3 — Phase 0-A)
 
-- [ ] Source real-world educator questions from the existing scraped question bank
-- [ ] Categorize each question as **In-Scope** (answerable from the 25 PLC books) or **Out-of-Scope** (outside the corpus)
-- [ ] Target 50–100 questions total across both categories
-- [ ] Define the expected behavior for each category:
+- [x] Source real-world educator questions from the existing scraped question bank
+- [x] Categorize each question as **In-Scope** (answerable from the 25 PLC books) or **Out-of-Scope** (outside the corpus)
+- [x] Target 50–100 questions total across both categories
+- [x] Define the expected behavior for each category:
   - In-Scope: grounded, cited answer
   - Out-of-Scope: hard refusal — *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."*
-- [ ] Structure the dataset as a JSON file (`tests/fixtures/golden_dataset.json`) with fields: `question`, `category`, `expected_answer` (null for now)
+- [x] Structure the dataset as a JSON file (`tests/fixtures/golden_dataset.json`) with fields: `question`, `category`, `expected_answer` (null for now)
 - [ ] Check the golden dataset into the repository
 
 #### B.2 Pre-Build Corpus Scan (PRD §9)
