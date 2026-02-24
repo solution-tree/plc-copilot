@@ -1,0 +1,502 @@
+[
+  {
+    "question": "Are there ways to make the common formative assessment process less threatening?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Should teams use a protocol when reviewing common assessment data? Where can we find examples of such protocols?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How many questions should a common assessment have?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How many questions should we use to measure each learning target on a common formative assessment?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How many learning targets should be assessed on a common formative assessment?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What format should a team use when designing common formative assessments?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Which item types are better for common formative assessments: selected-response or constructed-response items?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Does a common formative assessment only assess essential standards, or can it also assess other required curriculum content?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can the same common assessment be used to retest students after interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Do teams have to give common formative assessments at the same time, and is there a need for a common pacing guide?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are the keys to creating high-quality, performance-based common formative assessments?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Does attention to a guaranteed curriculum, common pacing, and common assessments come at the cost of teacher creativity?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Does district leadership need to answer the question, 'How will we know when our students have learned it?' If so, what information should they gather?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is the district's role in supporting the use of common formative assessments?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can the district ensure that teams have access to the right kind of data at the right time for common assessments?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How will we respond when some students don't learn and some do?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is an intervention?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are systematic interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are the characteristics of effective interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is response to intervention (RTI), and how does it fit into PLCs and interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How much time should a school dedicate weekly to supplemental interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Where can we find sample schedules for providing interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do we provide interventions for students who are years behind in foundational skills?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "If some students need a lot of additional time to catch up, shouldn't retention be an option as an intensive intervention?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is the parent's responsibility for interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is the student's responsibility for interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Who is responsible for providing interventions—classroom teachers or support staff?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How should we use specialist teachers for interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do elective teachers fit into interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Should interventions be punitive?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Where does special education fit into a school's system of interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How often should a school systematically identify students for interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What do we do with students who have already learned the content while some students receive interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do we fit core instruction, interventions, extensions, specials, and electives all into a student's daily schedule?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do we make students attend an intervention?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What do we do when a student is struggling because of misbehavior?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do we make students take responsibility for their own success?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Isn't requiring students to get help and allowing second chances just enabling them? Won't such practices fail to prepare them for college and the real world?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What do we do for interventions when we have tried everything and the student is still failing?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What programs do you recommend for interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are the district's responsibilities for ensuring every school has systematic interventions?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Should the central office implement the PLC process throughout all the district schools, or should implementation occur at the building level?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can the PLC process succeed in a school with a weak or ineffective principal?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can the central office best support a districtwide PLC initiative?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can the central office monitor progress in a districtwide PLC initiative?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Do we need everyone to buy into the PLC process before we begin implementation?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "When will we know we have consensus among staff regarding the PLC process?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Is it okay to start the PLC process with just the teachers and teams who want to do it?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What if we have a colleague who is unwilling to engage in the PLC process?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can we persuade someone to change his or her attitude toward the PLC process?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What if our principal won't hold people accountable to their team norms or to the PLC process?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "If we understand the PLC process but our principal does not, what can we do?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can teams plan for celebration in the PLC process?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How long does it take to become a PLC?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What team should a teacher be on if there is only one teacher per grade level?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "At an elementary school where each grade level has subject-specific teachers, how do the teachers team?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "With other grade-level teachers teaching only English learners, how do teachers team together with such different student needs?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do interdisciplinary teams form and operate within PLCs?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do teams operate when members are spread across the district?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Whom should a teacher team with when assigned to almost every grade level?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How should a team leader be selected?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Who should determine the agenda for teacher team meetings: the administration or each teacher team?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What dispositions do we expect teacher team members to acquire?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do we identify essential standards?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "If our district has already identified essential standards, should each school or teacher team still answer the 'learn what' question?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do we ensure vertical alignment of standards across grade levels?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How should teachers use 'I can' statements to track their own progress?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What should a team do if a member does not commit to teaching the agreed-upon curriculum?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What level of rigor must a student demonstrate to master a standard?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What academic vocabulary do students need to master the new standard?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What assessments will be used to measure student mastery of standards?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What will we do when students have already learned a standard?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is it we expect students to know and be able to do?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are the three big ideas of professional learning communities (PLCs)?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are the four critical questions that guide PLCs?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is a learning-focused vision statement?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What must we behave like today and every day in order to make our shared vision a reality?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What roles do mission, vision, values, and goals serve as a solid foundation of the PLC process?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is the difference between mission and vision in a PLC context?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What do we do to change the existing culture when it is not learning-focused?",
+    "category": "in_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can you help me create a phonics lesson plan for kindergarten focusing on beginning sounds?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are some effective strategies to teach long division to 5th graders struggling with math?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can I write a detailed rubric for a high school biology lab report?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are some classroom management techniques to reduce disruptive behavior in a 2nd grade class?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can you suggest ways to incorporate Google Classroom effectively into a 9th grade history course?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do I write a 504 accommodation plan for a student with ADHD in middle school?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What is a good script for calling parents to discuss a student's declining homework completion?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can you recommend math manipulatives that work well for teaching fractions to 3rd graders?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are trauma-informed practices suitable for supporting high school students after a community crisis?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How should I prepare a substitute teacher packet for a 4th grade English language arts class?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can you help me design a writing workshop session focused on persuasive essays for 7th graders?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are some strategies for teaching phonemic awareness to English language learners in kindergarten?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How can I use Kahoot to review vocabulary in a 10th grade Spanish class?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are best practices for de-escalating conflicts between middle school students during recess?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can you help me develop an IEP goal targeting social skills improvement for an elementary student with autism?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are some effective ways to communicate with parents about their child's progress in a virtual learning environment?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "How do I align a 6th grade science unit on ecosystems with Next Generation Science Standards?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What are some engaging activities to teach narrative writing to 8th graders?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "Can you suggest strategies for supporting student mental health and resilience in a high school setting?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  },
+  {
+    "question": "What should be included in a substitute teacher's lesson plan for a 1st grade math class on addition?",
+    "category": "out_of_scope",
+    "expected_answer": null
+  }
+]
