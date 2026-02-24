@@ -25,9 +25,9 @@ apps/api/terraform/
 ├── vpc.tf                  # VPC, 6 subnets (public/private-app/private-data), IGW, NAT, route tables
 ├── vpc-endpoints.tf        # S3 gateway endpoint, Secrets Manager interface endpoint
 ├── vpc-flow-logs.tf        # VPC flow logs → CloudWatch
-├── security-groups.tf      # 7 security groups (ALB, API, Parser, Reranker, RDS, Redis, Qdrant)
+├── security-groups.tf      # 9 security groups (ALB, API, Parser, Reranker, RDS, Redis, Qdrant + Zone B placeholder, Zone C placeholder)
 ├── kms.tf                  # Customer-managed KMS key for all encryption
-├── iam.tf                  # 6 IAM roles (ECS execution, API task, ingestion task, parser task, reranker task, Qdrant EC2)
+├── iam.tf                  # 8 IAM roles (ECS execution, API task, ingestion task, parser task, reranker task, Qdrant EC2 + Zone B placeholder, Zone C placeholder)
 ├── s3.tf                   # 3 buckets (books, logs, qdrant-backups) — encrypted, versioned, no public access
 ├── ecr.tf                  # 4 ECR repos (api, parser, reranker, ingestion)
 ├── secrets.tf              # Secrets Manager shells (OpenAI key, RDS creds, Redis auth, app API key) — no values in code
@@ -44,16 +44,23 @@ apps/api/terraform/
 ├── elasticache.tf          # ElastiCache Redis 7 (cache.t3.micro, encrypted at rest + in transit)
 ├── service-discovery.tf    # Cloud Map private DNS namespace for internal service-to-service calls
 ├── cloudwatch.tf           # Log groups, metric alarms, SNS topic for alerts
+├── xray.tf                 # X-Ray tracing: IAM permissions for X-Ray daemon on each Fargate task role
 ├── outputs.tf              # Key outputs (CloudFront URL, ALB DNS, ECR URIs, RDS endpoint, Redis endpoint, Qdrant IP)
-└── terraform.tfvars.example # Example values (no secrets)
+├── terraform.tfvars.example # Canonical reference showing every variable and its purpose (no secrets)
+└── envs/
+    ├── dev.tfvars          # Dev environment overrides (smallest instance sizes, single-AZ)
+    ├── staging.tfvars      # Staging environment overrides (mirrors prod sizing)
+    └── prod.tfvars         # Prod environment overrides (multi-AZ, larger instances, longer retention)
 ```
+
+Apply with: `terraform apply -var-file="envs/staging.tfvars"`
 
 Also add Terraform entries to `.gitignore`.
 
 ## Key Design Decisions
 
 1. **Flat file structure, no modules** — MVP simplicity; one file per resource domain, easy to refactor into modules later
-2. **Subnet CIDR reservations** — `/21` subnets within `10.0.0.0/16`; Zone B (`10.0.48.0/20`) and Zone C (`10.0.64.0/20`) reserved as comments for future implementation
+2. **Tenant Enclave zone boundaries** — Zone A (Content) is active for MVP; Zone B (Meetings) and Zone C (Identity) get placeholder security groups and IAM roles with no rules/policies attached, plus CIDR reservations (`10.0.48.0/20` and `10.0.64.0/20`) as comments in `vpc.tf` — satisfies AC-1 and lets future work slot in without restructuring
 3. **Single NAT Gateway** — saves ~$32/month; `single_nat_gateway` variable to toggle multi-AZ later
 4. **Single KMS key** — one customer-managed key for all encryption (S3, RDS, EBS, ElastiCache, Secrets Manager, CloudWatch Logs); can split per-zone post-MVP
 5. **Secrets Manager shells only** — Terraform creates secret resources but never stores values; `ignore_changes` on secret versions
@@ -74,6 +81,8 @@ Also add Terraform entries to `.gitignore`.
 | `rds-sg` | `api-sg`, `ingestion-sg` | 5432 | PostgreSQL |
 | `redis-sg` | `api-sg` | 6379 | Redis |
 | `qdrant-sg` | `api-sg`, `ingestion-sg` | 6333, 6334 | Qdrant HTTP + gRPC |
+| `zone-b-sg` | _(none)_ | — | Zone B placeholder; no rules until Meetings zone is built |
+| `zone-c-sg` | _(none)_ | — | Zone C placeholder; no rules until Identity zone is built |
 
 ## Implementation Order
 
@@ -83,8 +92,8 @@ Also add Terraform entries to `.gitignore`.
 4. **Storage:** `s3.tf`, `ecr.tf`, `secrets.tf`
 5. **Data tier:** `rds.tf`, `elasticache.tf`, `ec2-qdrant.tf`
 6. **Compute:** `service-discovery.tf`, `ecs.tf`, `alb.tf`, `cloudfront.tf`, `waf.tf`, `ecs-api.tf`, `ecs-parser.tf`, `ecs-reranker.tf`, `ecs-ingestion.tf`
-7. **Monitoring:** `cloudwatch.tf`, `outputs.tf`
-8. **Docs:** `terraform.tfvars.example`, `.gitignore` updates
+7. **Monitoring:** `cloudwatch.tf`, `xray.tf`, `outputs.tf`
+8. **Docs:** `terraform.tfvars.example`, `envs/dev.tfvars`, `envs/staging.tfvars`, `envs/prod.tfvars`, `.gitignore` updates
 
 ## Variables (key ones, all have sensible MVP defaults except `environment` and `alert_email`)
 
@@ -110,7 +119,7 @@ Also add Terraform entries to `.gitignore`.
 
 1. `terraform init` — should succeed with S3 backend
 2. `terraform validate` — all files syntactically valid
-3. `terraform plan` — shows ~60-80 resources to create, zero errors
+3. `terraform plan` — shows ~65-85 resources to create, zero errors
 4. Review security groups, IAM policies, and encryption settings in the plan output
 5. Confirm no secrets appear in any `.tf` file or state output
 6. Confirm CloudFront distribution output shows `*.cloudfront.net` HTTPS URL
