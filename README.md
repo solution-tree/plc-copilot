@@ -12,7 +12,7 @@ The primary goal is to validate that a high-quality, book-only RAG service can p
 
 | Document | Location | Description |
 |---|---|---|
-| **Product Requirements (PRD)** | `apps/api/docs/prd-v3.md` | The full, self-contained specification for the PLC Coach Service MVP. **This is the source of truth for the engineering team.** |
+| **Product Requirements (PRD)** | `apps/api/docs/prd-v4.md` | The full, self-contained specification for the PLC Coach Service MVP. **This is the source of truth for the engineering team.** |
 | **AI Development Rules** | `CLAUDE.md` | Rules and context for AI-powered development on this repository. |
 | **Engineering Handbook** | `CONTRIBUTING.md` | Branching workflow, naming standards, and other engineering conventions. |
 

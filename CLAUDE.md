@@ -8,7 +8,8 @@ The primary goal is to validate that a high-quality, book-only RAG service can p
 
 ### Key Context Documents
 
-*   **The full specification is in the PRD:** `@apps/api/docs/prd-v3.md`
+*   **The full specification is in the PRD:** `@apps/api/docs/prd-v4.md`
+*   **The technical specification:** `@apps/api/docs/research/tech-spec.md`
 *   **Compliance is non-negotiable:** `@apps/api/docs/research/ferpa-FINAL.md`
 
 ## 2. Technology Stack
@@ -17,12 +18,13 @@ The primary goal is to validate that a high-quality, book-only RAG service can p
 *   **API Framework:** FastAPI with Pydantic for data validation.
 *   **Vector Database:** Qdrant, self-hosted on an EC2 instance.
 *   **RAG Orchestration:** LlamaIndex.
-*   **PDF Parsing:** `llmsherpa`, self-hosted as a service on Fargate.
+*   **PDF Parsing:** Hybrid pipeline — PyMuPDF (page classification), llmsherpa (structure-aware parsing), GPT-4o Vision (landscape/reproducible pages). All run in-process within the API container.
+*   **Re-ranking:** `cross-encoder/ms-marco-MiniLM-L-6-v2`, running as an in-process Python module.
 *   **LLM & Embeddings:** OpenAI API (GPT-4o for generation, `text-embedding-3-large` for embeddings).
 *   **Cloud Provider:** AWS.
 *   **Infrastructure as Code:** Terraform.
 *   **CI/CD:** GitHub Actions.
-*   **Compute:** AWS Fargate for stateless services (API, parser); EC2 for stateful Qdrant.
+*   **Compute:** AWS Fargate for the API service (parser and re-ranker run in-process); EC2 for stateful Qdrant.
 *   **Databases:** Amazon RDS for PostgreSQL (session/audit data) and Amazon ElastiCache for Redis (session cache).
 
 ## 3. Repository Structure
