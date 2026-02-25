@@ -2,7 +2,7 @@
 
 **Document Purpose:** This Product Requirements Document (PRD) provides a complete, self-contained specification for building the Minimum Viable Product (MVP) of the PLC Coach Service. It is designed to be handed to an engineering team to implement from a new, empty repository without requiring additional context.
 
-**Author:** Nani | **Version:** 3.0 (Implementation-Ready) | **Date:** February 23, 2026
+**Author:** Nani | **Version:** 3.1 (MVP Simplification) | **Date:** February 25, 2026
 
 ---
 
@@ -99,9 +99,9 @@ The retrieval mechanism uses a hybrid search approach that combines both semanti
 
 **Semantic Search (Vector):** Finds chunks that are conceptually similar to the query using vector embeddings, even when the exact words do not match. This is effective for broad, conceptual questions.
 
-**Keyword Search:** Finds chunks containing the exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum) where an embedding model may not capture the precise terminology.
+**Keyword Search (BM25):** Finds chunks containing the exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). This is handled by the **LlamaIndex `BM25Retriever`** running in the application layer, not in the database.
 
-After both searches run, the **`cross-encoder/ms-marco-MiniLM-L-6-v2` re-ranker** (self-hosted on Fargate) scores and re-orders the combined candidate set by relevance to the query before the top results are passed to GPT-4o for answer generation. This directly addresses the known weakness of simple vector-only search, which was identified as a primary source of lower-quality context in the prior system. See Section 6 for the hosting rationale.
+After both searches run, the **`cross-encoder/ms-marco-MiniLM-L-6-v2` re-ranker** (running as a Python module within the API container) scores and re-orders the combined candidate set by relevance to the query before the top results are passed to GPT-4o for answer generation. This directly addresses the known weakness of simple vector-only search.
 
 
 ## 4. Data Models & Schema
@@ -128,11 +128,13 @@ PostgreSQL serves as the relational metadata store, providing structured lookups
 | `id` | integer | Primary key |
 | `book_id` | integer | Foreign key to `books.id` |
 | `qdrant_id` | string | The corresponding vector ID in Qdrant |
-| `text_content` | text | The raw text of the chunk |
+| `text_content` | text | The raw text of the chunk (for reference and audit only; not indexed for search) |
 | `page_number` | integer | Source page number |
 | `chunk_type` | string | One of: `title`, `body_text`, `list`, `table`, `reproducible` |
 | `chapter` | string | Chapter name (nullable) |
 | `section` | string | Section name (nullable) |
+
+> **Note on `text_content`:** This column is stored for auditing and to provide excerpts in citations. It is **not** indexed for full-text search in PostgreSQL. Keyword search is handled at the application layer by the LlamaIndex `BM25Retriever`.
 
 ### 4.2. Qdrant Schema
 
@@ -293,43 +295,44 @@ The MVP will be built on AWS, using a hybrid of managed and self-hosted services
 |---|---|---|---|
 | **Application Framework** | Python 3.11+ with FastAPI & Pydantic | N/A | Modern, high-performance async framework with strong data validation. |
 | **RAG Orchestration** | LlamaIndex | N/A | Provides the hybrid search, re-ranking, and generation pipeline. Runs within the API service. |
-| **Compute (API & Services)** | Docker Containers on AWS Fargate | Managed | Abstracts server management. For MVP, the API, PDF Parser, and Ingestion Worker run as separate single-task services for isolation and cost-effectiveness. Scales to multi-AZ post-MVP. |
+| **Compute (API)** | Docker Container on AWS Fargate | Managed | Abstracts server management. For MVP, the API, PDF Parser, and Re-ranker run as a single monolithic service for simplicity and cost-effectiveness. |
 | **Vector Database** | Qdrant | Self-Hosted on EC2 | The most critical data store from a compliance perspective. A single `t4g.medium` instance in a private VPC ensures vector embeddings of proprietary content never leave direct control. |
-| **PDF Parsing Service** | llmsherpa / nlm-ingestor | Self-Hosted on Fargate | Containerized within the VPC to prevent sending raw PDF content to any third party. |
-| **Re-ranker Model** | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Self-Hosted on Fargate | Runs inside the VPC alongside llmsherpa, ensuring query text and retrieved content never leave the infrastructure. Consistent with the self-hosting principle for all data-touching components and avoids future DPA complexity when sensitive data enters Zone B. |
+| **PDF Parsing & Re-ranking** | llmsherpa, `cross-encoder/ms-marco-MiniLM-L-6-v2` | In-Process Python Modules | For MVP, these run as Python modules inside the main API container, avoiding inter-service network latency and simplifying deployment. |
 | **Relational Database** | PostgreSQL 15+ | Amazon RDS (Managed) | Reliable, low-maintenance storage for book metadata, chunk records, and audit logs. |
-| **Session Cache** | Redis 7+ | Amazon ElastiCache (Managed) | Manages the state of the conditional clarification loop sessions. |
+| **Session Cache** | Redis 7+ | Amazon ElastiCache (Managed) | Manages the state of the conditional clarification loop sessions. A `cache.t3.micro` instance is sufficient for MVP. |
 | **File Storage (Corpus)** | — | Amazon S3 (Managed) | Source PDFs stored in a private bucket with versioning enabled and access restricted to the ingestion service IAM role. |
-| **LLM & Embeddings** | GPT-4o, `text-embedding-3-large` | OpenAI API (External) | All usage through enterprise-grade, zero-retention endpoints governed by an executed DPA. Embedding model will be benchmarked against alternatives post-MVP (Decision #6). |
+| **LLM & Embeddings** | GPT-4o, `text-embedding-3-large` | OpenAI API (External) | All usage through enterprise-grade, zero-retention endpoints governed by an executed DPA. |
 
 ### 6.1. DevOps & Infrastructure
 
-**Infrastructure as Code:** All AWS resources (VPC, subnets, security groups, IAM roles, Fargate services, RDS, ElastiCache, EC2) will be defined using Terraform, ensuring the environment is reproducible, version-controlled, and promotable across dev, staging, and production.
+**Infrastructure as Code:** All AWS resources (VPC, subnets, security groups, IAM roles, Fargate service, RDS, ElastiCache, EC2) will be defined using Terraform, ensuring the environment is reproducible and version-controlled.
 
-**CI/CD Pipeline:** A GitHub Actions workflow will trigger on every push to `main` to: run linters and unit tests; build and tag Docker images for the API and service workers; push images to Amazon ECR; and trigger a new deployment of the relevant ECS/Fargate service.
+**CI/CD Pipeline:** A GitHub Actions workflow will trigger on every push to `main` to: run linters and unit tests; build and tag a Docker image for the API service; push the image to Amazon ECR; and trigger a new deployment of the ECS/Fargate service.
 
-**Networking:** A dedicated VPC will be created with public and private subnets across multiple availability zones. The Application Load Balancer will reside in the public subnets. All other services (Fargate tasks, RDS, ElastiCache, EC2/Qdrant) will be in the private subnets. A NAT Gateway provides controlled egress for services that call external APIs such as OpenAI.
+**Ingestion:** The ingestion pipeline will be run as a **GitHub Actions-triggered script** for the initial 25-book corpus, not as a continuously running service.
+
+**Networking:** A dedicated VPC will be created with public and private subnets in a **single availability zone** for MVP to minimize cost. The Application Load Balancer will reside in the public subnets. All other services (Fargate, RDS, ElastiCache, EC2/Qdrant) will be in the private subnets. A NAT Gateway provides controlled egress for services that call external APIs such as OpenAI.
 
 **Secrets Management:** All secrets (API keys, database credentials) will be stored in AWS Secrets Manager. IAM roles with least-privilege permissions will be used to grant service access. All data will be encrypted at rest using AWS KMS and in transit using TLS 1.2+.
 
-**Observability:** Structured JSON logs will be emitted for every API request, capturing `user_id`, `query_text`, `retrieved_chunk_ids`, `final_answer_text`, `latency_ms`, and `was_cached`. A real-time CloudWatch dashboard will track API Request Rate, Error Rate, P95 Latency, and Cache Hit Rate. AWS X-Ray will be integrated for distributed tracing.
+**Observability:** For MVP, observability will be limited to **basic CloudWatch log groups** for the Fargate service. Full dashboards, metric alarms, and distributed tracing (X-Ray) are deferred to a future release.
 
 
 ## 7. Security & Compliance: The Tenant Enclave Foundation
 
-The architecture is designed to be **compliant by default**. Even though the MVP only handles proprietary book content with no student data, the full security infrastructure for all three data zones will be built from day one (Decision #8). This is a foundational architectural decision: the cost and timeline impact on the MVP is minimal, but building the secure zone boundaries now avoids a costly and risky refactor when FERPA-constrained data sources are added in future phases.
+The architecture is designed to be **compliant by default**. Even though the MVP only handles proprietary book content with no student data, the security model is designed to be ready for future FERPA-constrained data sources.
 
 The service will operate as a "school official" under FERPA, which is permissible only with strict contractual and technical controls. The system is also designed to meet the requirements of state-level student privacy laws (e.g., NY Ed Law § 2-d, California's SOPIPA) that mandate controls beyond FERPA.
 
 ### 7.1. The Three-Zone Tenant Enclave Model
 
-The system's data architecture is built on three logically segregated zones, each with its own IAM roles, security groups, and access controls. All three zones' infrastructure will be provisioned at MVP launch. Only Zone A will contain data at that time.
+The system's data architecture is built on three logically segregated zones. For MVP, **only the infrastructure for Zone A will be provisioned.** The infrastructure for Zones B and C will be defined as commented-out code in Terraform, ready to be activated in future phases.
 
 | Zone | Name | What Lives Here | MVP Status |
 |---|---|---|---|
-| **Zone A** | Content Zone | The 25 PLC @ Work® books — PDFs, parsed text, and vector embeddings. Proprietary IP but no PII. | **Built and populated at MVP launch** |
-| **Zone B** | Meeting / Transcript Zone | De-identified PLC meeting transcripts and notes (future). | **Infrastructure built at MVP, empty** |
-| **Zone C** | Identity / Student Directory Zone | The mapping between real student names and anonymized tokens (future). Accessible only by a dedicated, audited tokenization service. | **Infrastructure built at MVP, empty** |
+| **Zone A** | Content Zone | The 25 PLC @ Work® books — PDFs, parsed text, and vector embeddings. Proprietary IP but no PII. | **Infrastructure built and populated at MVP launch** |
+| **Zone B** | Meeting / Transcript Zone | De-identified PLC meeting transcripts and notes (future). | **Infrastructure defined in code, but not provisioned** |
+| **Zone C** | Identity / Student Directory Zone | The mapping between real student names and anonymized tokens (future). Accessible only by a dedicated, audited tokenization service. | **Infrastructure defined in code, but not provisioned** |
 
 ### 7.2. Core Security Controls
 
@@ -352,25 +355,25 @@ The following technical controls apply across all zones from day one:
 
 The MVP will be considered complete when all of the following criteria are met:
 
-1. All infrastructure described in Section 6 is provisioned in an AWS account using Terraform, including the security group boundaries for all three Tenant Enclave zones (A, B, and C).
+1.  All infrastructure described in Section 6 for **Zone A** is provisioned in an AWS account using Terraform. The infrastructure for Zones B and C is defined as commented-out code with documented intent.
 
-2. A CI/CD pipeline (GitHub Actions) is in place to automatically build, test, and deploy changes to the Fargate services.
+2.  A CI/CD pipeline (GitHub Actions) is in place to automatically build, test, and deploy changes to the Fargate service.
 
-3. The pre-build corpus scan (Section 9) has been completed and its findings have been reviewed and signed off before ingestion begins.
+3.  The pre-build corpus scan (Section 9) has been completed and its findings have been reviewed and signed off before ingestion begins.
 
-4. The golden dataset (Section 2.3) has been assembled from the scraped question bank, categorized into in-scope and out-of-scope questions, and checked into the repository.
+4.  The golden dataset (Section 2.3) has been assembled from the scraped question bank, categorized into in-scope and out-of-scope questions, and checked into the repository.
 
-5. The ingestion pipeline can be triggered to successfully process all 25 source PDFs from the S3 bucket into the Qdrant vector store and the PostgreSQL metadata database.
+5.  The ingestion pipeline can be triggered to successfully process all 25 source PDFs from the S3 bucket into the Qdrant vector store and the PostgreSQL metadata database.
 
-6. The `POST /api/v1/query` endpoint is live and accessible via a public URL, protected by a static API key.
+6.  The `POST /api/v1/query` endpoint is live and accessible via a public **ALB URL**, protected by a static API key.
 
-7. The endpoint correctly implements the **conditional** clarification loop: returning a direct `success` response for clear queries and a `needs_clarification` response with a valid `session_id` for ambiguous queries. The clarification loop must trigger only on queries that meet the two-part ambiguity test defined in Section 3.2, and must not trigger on queries that are broad but have a single clear answer.
+7.  The endpoint correctly implements the **conditional** clarification loop: returning a direct `success` response for clear queries and a `needs_clarification` response with a valid `session_id` for ambiguous queries. The clarification loop must trigger only on queries that meet the two-part ambiguity test defined in Section 3.2, and must not trigger on queries that are broad but have a single clear answer.
 
 7a. When a clarification follow-up is itself ambiguous, the system answers using its best interpretation and appends a statement of that interpretation to the response. The system never asks more than one clarifying question per session.
 
-8. The endpoint correctly returns an `out_of_scope` hard refusal response for queries that fall outside the PLC @ Work® corpus.
+8.  The endpoint correctly returns an `out_of_scope` hard refusal response for queries that fall outside the PLC @ Work® corpus.
 
-9. The RAGAS evaluation pipeline is functional and can be run against the golden dataset, producing Faithfulness and Answer Relevancy scores in reference-free mode.
+9.  The RAGAS evaluation pipeline is functional and can be run against the golden dataset, producing Faithfulness and Answer Relevancy scores in reference-free mode.
 
 10. A query for a known in-scope topic returns a coherent, grounded answer with accurate source citations (book title, SKU, page number, and text excerpt).
 
@@ -400,4 +403,3 @@ The pre-build corpus scan is considered complete when:
 - The scan script has been run against all 25 PDFs in the S3 bucket.
 - A summary report has been generated and reviewed by the team.
 - Any books with unexpected characteristics (e.g., a high proportion of image-only pages) have been flagged and a handling decision has been documented before ingestion begins.
-

@@ -1,4 +1,4 @@
-# PLC Copilot - Technical Specification v1.0
+# PLC Copilot - Technical Specification v1.1
 
 ---
 
@@ -7,12 +7,9 @@
 ### **Front Matter**
 
 - **Author:** Nani
-
 - **Team:** Solution Tree - Senior Software Engineers
-
 - **Status:** Draft
-
-- **Date:** February 20, 2026
+- **Date:** February 25, 2026
 
 ### **Background**
 
@@ -41,52 +38,36 @@ The primary justification for this MVP is to validate the core technical hypothe
 #### **Goals (What We Will Achieve)**
 
 1. **Build a Functioning RAG Pipeline:** Construct an end-to-end RAG system.
-
-1. **Achieve Factual Accuracy and Traceability:** Ensure answers are grounded and cited.
-
-1. **Validate Superiority over General LLMs:** Prove better performance through a quantitative evaluation framework.
-
-1. **Establish Core Infrastructure:** Deploy a scalable and secure backbone for future features.
+2. **Achieve Factual Accuracy and Traceability:** Ensure answers are grounded and cited.
+3. **Validate Superiority over General LLMs:** Prove better performance through a quantitative evaluation framework.
+4. **Establish Core Infrastructure:** Deploy a scalable and secure backbone for future features.
 
 #### **Non-Goals (What We Will NOT Achieve in this MVP)**
 
 1. **Solve the Entire "Knowing-Doing Gap":** No workflow automation or team collaboration features.
-
-1. **Achieve Perfect, Human-Like Conversation:** The focus is on accuracy and traceability, not personality.
-
-1. **Onboard Live Users:** This MVP is for internal testing and validation only.
-
-1. **Incorporate Multi-Modal Data:** Scope is limited to the 25 PDF books.
+2. **Achieve Perfect, Human-Like Conversation:** The focus is on accuracy and traceability, not personality.
+3. **Onboard Live Users:** This MVP is for internal testing and validation only.
+4. **Incorporate Multi-Modal Data:** Scope is limited to the 25 PDF books.
 
 ### **Scope**
 
 #### **In Scope**
 
 1. **Data Corpus:** The 25 provided PDF books from Solution Tree's PLC @ Work® series.
-
-1. **Ingestion Pipeline:** PDF Parsing, Semantic Chunking, Embedding, and Storage in Qdrant/PostgreSQL.
-
-1. **Core RAG API:** A single, stateless `POST /api/v1/query` endpoint.
-
-1. **Query Processing Logic:** Hybrid Search, Re-ranking, and Generation with GPT-4o.
-
-1. **Infrastructure:** AWS deployment with Redis caching and a basic CI/CD pipeline.
-
-1. **Evaluation Framework:** A test suite of 50-100 questions and an automated evaluation pipeline using RAGAS.
+2. **Ingestion Pipeline:** PDF Parsing, Semantic Chunking, Embedding, and Storage in Qdrant/PostgreSQL.
+3. **Core RAG API:** A single, stateless `POST /api/v1/query` endpoint.
+4. **Query Processing Logic:** Hybrid Search, Re-ranking, and Generation with GPT-4o.
+5. **Infrastructure:** Simplified, FERPA-compliant AWS deployment with Redis caching and a basic CI/CD pipeline.
+6. **Evaluation Framework:** A test suite of 50-100 questions and an automated evaluation pipeline using RAGAS.
 
 #### **Out of Scope**
 
 1. **User Interface (UI):** No front-end will be developed.
-
-1. **User Authentication:** The API will be for internal use with a static API key.
-
-1. **Multi-turn Conversational Memory:** The API will be stateless.
-
-1. **Workflow Integration:** No integration with external tools.
-
-1. **Additional Data Sources:** No video, audio, or web content.
-
-1. **Model Fine-Tuning:** This is a post-MVP task.
+2. **User Authentication:** The API will be for internal use with a static API key.
+3. **Multi-turn Conversational Memory:** The API will be stateless.
+4. **Workflow Integration:** No integration with external tools.
+5. **Additional Data Sources:** No video, audio, or web content.
+6. **Model Fine-Tuning:** This is a post-MVP task.
 
 ---
 
@@ -109,7 +90,7 @@ The primary justification for this MVP is to validate the core technical hypothe
       +--------------------+--------------------+
       |                    |
       v                    v
-[4. Vector DB (Qdrant)]: # "[5. Metadata DB (PostgreSQL)]"
+[4. Vector DB (Qdrant)]  [5. Metadata DB (PostgreSQL)]
 ```
 
 ### **Query Pipeline (Real-time API Call)**
@@ -117,68 +98,66 @@ The primary justification for this MVP is to validate the core technical hypothe
 ```
 [User Query]
       |
-      v
-[1. Embedding Model (OpenAI)]
-      |
-      v
-[2. Hybrid Search (Qdrant)]
-      |
-      v
-[3. Re-ranker Model]
-      |
-      v
-[4. Context Builder]
-      |
-      v
-[5. Generation Model (GPT-4o)]
-      |
-      v
-[Final Answer + Citations]
+      +------------------------------------+
+      |                                    |
+      v                                    v
+[1a. BM25 Retriever (in-app)]      [1b. Vector Search (Qdrant)]
+      |                                    |
+      +-----------------+------------------+
+                      |
+                      v
+              [2. Combine & Deduplicate]
+                      |
+                      v
+              [3. Re-ranker Model]
+                      |
+                      v
+              [4. Context Builder]
+                      |
+                      v
+              [5. Generation Model (GPT-4o)]
+                      |
+                      v
+              [Final Answer + Citations]
 ```
 
 ---
 
 ## Part 3: Detailed Design
 
-### **API Contract: ****`POST /api/v1/query`**
+### **API Contract: `POST /api/v1/query`**
 
 - **Request:** `{"query": "...", "user_id": "..."}`
-
 - **Response:** `{"answer": "...", "sources": [...]}`
   - Each source object will contain `book_title`, `sku`, `page_number`, and `text_excerpt`.
 
 ### **PostgreSQL Schema**
 
-- **`books`**** table:** `id`, `sku`, `title`, `authors`.
+- **`books` table:** `id`, `sku`, `title`, `authors`.
+- **`chunks` table:** `id`, `book_id`, `qdrant_id`, `text_content`, `page_number`, `chunk_type`, `chapter`, `section`.
 
-- **`chunks`**** table:** `id`, `book_id`, `qdrant_id`, `text_content`, `page_number`, `chunk_type`, `chapter`, `section`.
+> **Note:** The `text_content` column is **not** indexed for full-text search. Keyword search is handled at the application layer via LlamaIndex's `BM25Retriever`.
 
 ### **Qdrant Schema**
 
 - **Collection:** `plc_copilot_v1`
-
 - **Vector:** 3,072 dimensions from `text-embedding-3-large`.
-
 - **Payload:** `book_sku`, `chunk_type`, `page_number` for fast filtering.
 
 ---
 
 ## Part 4: Operational Concerns
 
-- **Security:** API protected by a static API key. Data encrypted in transit (TLS 1.2+) and at rest. Architecture will follow the FERPA-ready Tenant Enclave design pattern, deployed as a single instance for the MVP.
-
-- **Logging:** Structured JSON logs for every API request, capturing `user_id`, `query_text`, `retrieved_chunk_ids`, `final_answer_text`, `latency_ms`, and `was_cached`.
-
-- **Monitoring:** Real-time dashboard tracking API Request Rate, Error Rate, P95 Latency, and Cache Hit Rate.
-
-- **Cost Estimation:** Costs are broken down into fixed Cloud Infrastructure (~$200-500/mo) and variable AI Service costs (OpenAI). An action item is to calculate the one-time embedding cost for the corpus.
+- **Security:** API protected by a static API key. Data encrypted in transit (TLS 1.2+) and at rest. Architecture will follow the FERPA-ready Tenant Enclave design pattern, with only Zone A infrastructure provisioned for the MVP.
+- **Logging:** Structured JSON logs for every API request, capturing `user_id`, `retrieved_chunk_ids`, `final_answer_text`, `latency_ms`, and `was_cached`.
+- **Monitoring:** For MVP, monitoring is limited to basic CloudWatch log groups.
+- **Cost Estimation:** Costs are broken down into fixed Cloud Infrastructure (**~$80-150/mo for the simplified MVP**) and variable AI Service costs (OpenAI). An action item is to calculate the one-time embedding cost for the corpus.
 
 ---
 
 ## Part 5: Testing and Validation
 
 - **Software Testing:** Comprehensive unit, integration, and API contract tests.
-
 - **RAG Evaluation Framework:** An automated pipeline using RAGAS to score the system on Faithfulness, Answer Relevancy, and Context Precision against a manually created golden dataset of 50-100 questions.
 
 ---
@@ -188,7 +167,7 @@ The primary justification for this MVP is to validate the core technical hypothe
 | Risk ID | Risk Description | Mitigation Strategy |
 | --- | --- | --- |
 | R-01 | Poor Answer Quality | RAG Evaluation Framework, Prompt Engineering. |
-| R-02 | High Operational Costs | Cost Monitoring, Cost Calculation, Model Benchmarking. |
+| R-02 | High Operational Costs | Cost Monitoring, Simplified MVP architecture. |
 | R-03 | Ineffective Retrieval | Hybrid Search, Re-ranker Model, Semantic Chunking. |
 | R-04 | Technical Complexity | Phased Implementation, Managed Services. |
 
@@ -202,15 +181,14 @@ The primary justification for this MVP is to validate the core technical hypothe
 | Chunking | Hybrid Semantic | Fixed-size chunking produces lower-quality context. |
 | Embedding | `text-embedding-3-large` | `small` model is cheaper but poses a quality risk for an expert system. |
 | Vector DB | `Qdrant` (Self-hosted) | `FAISS` is not production-ready; managed services reduce data control. |
-| Architecture | FERPA-Ready Enclave | Simple single-tenant design is prohibitively expensive to refactor later. |
-| Retrieval | Hybrid Search + Re-ranker | Simple vector search (used in the original system) provides lower-quality context. |
+| Architecture | Simplified FERPA-Ready Enclave | Simple single-tenant design is prohibitively expensive to refactor later. Full microservices are over-engineered for MVP. |
+| Retrieval | Hybrid Search + Re-ranker | Simple vector search provides lower-quality context. |
 
 ---
 
 ## Part 8: Work Breakdown
 
 - **Total Estimated Effort:** 32 engineer-days.
-
 - **Phases:** 1. Setup & Ingestion, 2. API & Query Pipeline, 3. Testing & Validation, 4. Deployment.
 
 ---
@@ -218,15 +196,10 @@ The primary justification for this MVP is to validate the core technical hypothe
 ## Part 9: Future Considerations
 
 - **F-01:** Workflow Integration (The "Body")
-
 - **F-02:** Multi-Modal Data Ingestion (Videos, Audio)
-
 - **F-03:** Conversational Memory (Stateful API)
-
 - **F-04:** Model Fine-Tuning
-
 - **F-05:** Full Multi-Tenancy Deployment
-
 - **F-06:** User-Facing Analytics Dashboard
 
 ---
@@ -234,8 +207,5 @@ The primary justification for this MVP is to validate the core technical hypothe
 ## Part 10: Appendices
 
 - **Appendix A:** Glossary of Terms
-
 - **Appendix B:** Key Research Documents
-
 - **Appendix C:** Full List of Corpus Books
-
