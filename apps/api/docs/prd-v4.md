@@ -2,7 +2,7 @@
 
 **Document Purpose:** This Product Requirements Document (PRD) defines **what** the MVP of the PLC Coach Service must do and **why** it matters. It is the source of truth for product decisions. Implementation details — including how components are built, the query pipeline execution order, chunking parameters, and infrastructure configuration — are documented in the companion Technical Specification.
 
-**Author:** Nani | **Version:** 4.1 | **Date:** February 25, 2026
+**Author:** LasChicas.ai | **Version:** 4.1 | **Date:** February 25, 2026
 
 ---
 
