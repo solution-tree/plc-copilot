@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff check *)",
+      "Bash(pytest *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git status *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/secrets/**)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)"
+    ]
+  }
+}
