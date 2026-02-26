@@ -4,8 +4,10 @@ validationDate: '2026-02-26'
 inputDocuments:
   - apps/api/docs/prd-v4.md
   - apps/api/docs/research/ferpa-FINAL.md
-validationStepsCompleted: [step-v-01-discovery]
-validationStatus: IN_PROGRESS
+validationStepsCompleted: [step-v-01-discovery, step-v-02-format-detection, step-v-03-density-validation, step-v-04-brief-coverage, step-v-05-measurability, step-v-06-traceability-validation, step-v-07-implementation-leakage-validation, step-v-08-domain-compliance-validation, step-v-09-project-type-validation, step-v-10-smart-validation, step-v-11-holistic-quality-validation, step-v-12-completeness-validation]
+validationStatus: COMPLETE
+holisticQualityRating: '3.5/5 - Good (lower end)'
+overallStatus: Warning
 ---
 
 # PRD Validation Report
@@ -92,3 +94,650 @@ A self-consistency validation was run across all PRD sections before the formal 
 | AC Cross-References | ❌ Broken | AC #1 points to Section 6, should be Section 7 |
 | Non-Goals → Decisions | ⚠️ Tension | "No perf optimization" vs. perf-motivated decisions |
 | Security → Observability | ⚠️ Unclear | Audit logging and observability described separately |
+
+### Step 2: Format Detection
+
+**PRD Structure (Level 2 Headers):**
+
+1. `## 1. Vision & Strategic Context`
+2. `## 2. MVP Goals & Scope`
+3. `## 3. Core Features & Requirements`
+4. `## 4. Data Models & Schema`
+5. `## 5. API Specification`
+6. `## 6. Architecture & Technology Stack`
+7. `## 7. Security & Compliance: The Tenant Enclave Foundation`
+8. `## 8. Acceptance Criteria`
+9. `## 9. Pre-Build Corpus Analysis`
+10. `## 10. Key Decisions Log`
+
+**Frontmatter:** None (no YAML frontmatter, no `classification.domain` or `classification.projectType`)
+
+**BMAD Core Sections Present:**
+
+| Core Section | Status | Mapped To |
+|---|---|---|
+| Executive Summary | ✅ Present | "1. Vision & Strategic Context" |
+| Success Criteria | ✅ Present | "2. MVP Goals & Scope" |
+| Product Scope | ✅ Present | Embedded in Section 2 (goals + non-goals) |
+| User Journeys | ❌ Missing | No dedicated section; API flows A/B/C are system flows, not user journeys |
+| Functional Requirements | ✅ Present | "3. Core Features & Requirements" |
+| Non-Functional Requirements | ❌ Missing | No dedicated section; concerns scattered across Sections 6 and 7 |
+
+**Format Classification:** BMAD Variant
+**Core Sections Present:** 4/6
+
+**Notable Gaps:**
+- **User Journeys:** The PRD describes the educator's problem in the vision but never maps the educator's journey through the system. API flows (Direct Answer, Clarification, Out-of-Scope) describe system behavior, not user experience paths.
+- **Non-Functional Requirements:** Performance, reliability, scalability, and accessibility attributes have no dedicated section. Some NFR-like statements exist in Security (Section 7) and Architecture (Section 6) but are not structured as measurable NFRs.
+
+### Step 3: Information Density Validation
+
+**Anti-Pattern Violations:**
+
+**Conversational Filler:** 2 mild occurrences
+- Line 115: "PostgreSQL serves as the relational metadata store, providing structured lookups and audit logging." — "serves as" is filler; could be "PostgreSQL is the relational metadata store..."
+- Line 345: "The architecture is designed to be **compliant by default**." — "is designed to be" is passive filler; could be "The architecture is **compliant by default**."
+
+**Wordy Phrases:** 0 occurrences
+- No classic wordy patterns detected ("due to the fact that", "in the event of", "in order to", etc.)
+
+**Redundant Phrases:** 0 occurrences
+- No redundant patterns detected
+
+**Contextual Density Note:** The PRD uses "will be" passive constructions ~13 times (lines 32, 34, 36, 42, 53, 62, 74, 98, 313, 330, 347, 351, 374). While standard PRD voice, some could be tightened (e.g., "The MVP will implement" → "The MVP implements"). This is stylistic, not a violation.
+
+**Total Violations:** 2 (mild)
+
+**Severity Assessment:** ✅ Pass
+
+**Recommendation:** PRD demonstrates good information density with minimal violations. The writing is direct, precise, and largely free of filler. The two mild instances are cosmetic.
+
+### Step 4: Product Brief Coverage
+
+**Status:** N/A — No Product Brief was provided as input
+
+### Step 5: Measurability Validation
+
+#### Functional Requirements
+
+**Total FRs Identified:** ~13 (embedded in Sections 3.1–3.3 and 5)
+
+**Format Violations:** 13 — ❌ Critical
+- No FRs follow the BMAD "[Actor] can [capability]" format
+- All are written as system descriptions: "The ingestion pipeline...", "The system will...", "The query engine delivers..."
+- Examples:
+  - Line 62: "The MVP will implement a sophisticated ingestion pipeline..." (system-centric, not actor-capability)
+  - Line 80: "The query engine delivers high-fidelity, context-aware responses..." (system-centric)
+  - Line 98: "The system will attempt to extract metadata filters..." (system-centric)
+
+**Subjective Adjectives Found:** 6 — ⚠️ Warning
+- Line 60: "High-Quality Ingestion Pipeline" (section heading)
+- Line 62: "sophisticated ingestion pipeline"
+- Line 70: "lightweight sorter"
+- Line 76: "lightweight automated scan"
+- Line 80: "high-fidelity, context-aware responses"
+- Line 98: "robust response"
+
+**Vague Quantifiers Found:** 0 — ✅ Pass
+- "multiple" and "many" appear only in ambiguity definitions (lines 90-92), not in requirement statements
+
+**Implementation Leakage (in Requirements Sections 3.1–3.3):** 5 — ⚠️ Warning
+- Lines 70-72: PyMuPDF, llmsherpa, GPT-4o Vision named in Section 3.1 (Features & Requirements)
+- Line 106: "BM25" named as keyword search method in Section 3.3
+- Line 108: "cross-encoder re-ranker" named in Section 3.3
+- Note: Technology names in Sections 4–6 (Architecture, Data Models) are expected and not counted
+
+**FR Violations Total:** 24
+
+#### Non-Functional Requirements
+
+**Total NFRs Identified:** 0 — ❌ Critical
+
+There is **no dedicated NFR section**. NFR-like statements are scattered:
+
+- Section 2.3: RAGAS thresholds (Faithfulness ≥ 0.80, etc.) — measurable but framed as evaluation criteria, not NFRs
+- Section 7.2: "Encryption: TLS 1.2+ and AWS KMS" — measurable
+- Section 7.2: "Structured JSON logs capture key events" — vague (which events? what retention?)
+- Section 6.1: "basic CloudWatch log groups" — vague
+
+**Missing NFRs that a service like this should define:**
+- Response time target (e.g., "API responds within X seconds for 95th percentile")
+- Concurrent user capacity (e.g., "supports N concurrent queries")
+- Availability target (e.g., "99.X% uptime during business hours")
+- Data retention / backup policy
+- Recovery time objective (RTO) / Recovery point objective (RPO)
+
+**NFR Violations Total:** N/A (no NFR section exists to validate)
+
+#### Overall Assessment
+
+**Total Requirements:** ~13 FRs + 0 NFRs
+**Total FR Violations:** 24
+**Missing NFR Section:** Yes
+
+**Severity:** ❌ Critical
+
+**Recommendation:** Requirements need significant restructuring for downstream consumption:
+1. Rewrite FRs in "[Actor] can [capability]" format with testable criteria
+2. Remove subjective adjectives or replace with measurable metrics
+3. Move technology names from Section 3 to Architecture/Tech Spec
+4. Add a dedicated NFR section with measurable performance, availability, and security targets
+
+### Step 6: Traceability Validation
+
+#### Chain Validation
+
+**Executive Summary → Success Criteria:** Gaps Identified
+
+The vision aligns well with all three goals. However, two gaps exist:
+
+1. The vision emphasizes answers that "help educators improve their practice," but no success criterion measures actual educator impact, satisfaction, or usability. All measurement is automated (RAGAS scores), with no human-in-the-loop validation from actual educators.
+2. The vision mentions "building a foundation of trust with users," but no success criterion directly measures trust or confidence.
+
+**Success Criteria → User Journeys:** Gaps Identified — ❌ Critical Structural Gap
+
+The PRD contains **no user journey section**. The three API flows (5.5, 5.6, 5.7) are system-level technical flows describing HTTP request/response sequences, not user journeys.
+
+- **Goal 1 (Deploy a Live Service):** No journey describes how an internal tester discovers, accesses, authenticates against, and uses the API.
+- **Goal 2 (Validate Answer Quality):** No journey describes the evaluation workflow — who runs the RAGAS pipeline, how results are reviewed, what happens when scores fall below thresholds.
+- **Goal 3 (Establish Architectural Foundation):** No forward-looking user narrative for Zones B and C.
+
+**User Journeys → Functional Requirements:** Gaps Identified
+
+Since no formal user journeys exist, this chain is structurally broken. The API flows (A/B/C) as proxy journeys are supported by FRs, but several FRs have no corresponding flow:
+
+1. **FR-3.1 (Ingestion Pipeline):** No flow describes the ingestion operator experience.
+2. **FR-3.2 (Dynamic Metadata Filtering):** No flow demonstrates a metadata-filtered query (e.g., filtering by author or requesting reproducibles).
+3. **Section 9 (Pre-Build Corpus Scan):** No flow shows how scan results are consumed.
+4. **Section 2.3 (Evaluation Strategy):** No flow shows evaluation execution.
+
+**Scope → FR Alignment:** Intact
+
+| In-Scope Item | Supporting FR | Status |
+|---|---|---|
+| Backend API service | FR-3.2 (Query Engine), Section 5 (API Spec) | ✅ Covered |
+| Static API key auth | Section 5.1, Section 7.2 | ✅ Covered |
+| PLC book corpus only | FR-3.1 (Ingestion Pipeline) | ✅ Covered |
+| Zone A infrastructure | Section 7.1 (Tenant Enclave) | ✅ Covered |
+| RAGAS evaluation | Section 2.3, AC #10-11 | ✅ Covered |
+| Terraform IaC | Section 6.1 | ✅ Covered |
+| CI/CD pipeline | Section 6.1 | ✅ Covered |
+
+Out-of-scope items are consistently excluded from FRs.
+
+#### Orphan Elements
+
+**Orphan Functional Requirements:** 4
+
+1. **FR-3.1 (Ingestion Pipeline):** No user journey or flow describes the ingestion operator experience. Traces to Goal 1 and AC #5 but lacks a journey.
+2. **FR-3.2 (Dynamic Metadata Filtering):** Never demonstrated in any API flow. AC #13 tests it but no journey traces to it.
+3. **Section 9 (Pre-Build Corpus Scan):** Defined with a DoD but no journey describes who performs it or reviews results.
+4. **Section 2.3 (Evaluation Pipeline):** Well-defined strategy but no journey describes the evaluator experience.
+
+**Unsupported Success Criteria:** 2
+
+1. **Goal 2 (Validate Answer Quality):** The claim of "proving measurable superiority over a general-purpose LLM baseline" has no FR or AC defining the baseline comparison methodology. AC #10-11 measure absolute RAGAS scores but do not require a comparative evaluation.
+2. **Goal 3 (Establish Architectural Foundation):** "Prepared for future enhancements" has no AC validating architectural extensibility beyond commented-out Terraform code.
+
+**User Journeys Without FRs:** 0 (N/A — no user journeys exist)
+
+#### Traceability Matrix
+
+| FR / Requirement | Source Journey | Business Objective | Acceptance Criteria | Trace Status |
+|---|---|---|---|---|
+| FR-3.1: Ingestion Pipeline | None (orphan) | Goal 1 | AC #3, #5 | ⚠️ Partial |
+| FR-3.2: Query Engine (Direct Answer) | Flow A | Goal 1, Goal 2 | AC #6, #7, #12 | ✅ Intact |
+| FR-3.2: Query Engine (Clarification) | Flow B | Goal 1 | AC #7, #8 | ✅ Intact |
+| FR-3.2: Query Engine (Out-of-Scope) | Flow C | Goal 2 | AC #9 | ✅ Intact |
+| FR-3.2: Dynamic Metadata Filtering | None (orphan) | Goal 2 | AC #13 | ⚠️ Partial |
+| FR-3.3: Hybrid Search & Re-Ranking | Flow A (implicit) | Goal 2 | AC #11, #12 | ✅ Intact |
+| Section 7: Security & Compliance | None | Goal 3 | AC #1 (partial) | ⚠️ Partial |
+| Section 9: Pre-Build Corpus Scan | None (orphan) | Goal 1 | AC #3 | ⚠️ Partial |
+| Section 2.3: Evaluation Strategy | None (orphan) | Goal 2 | AC #4, #10, #11 | ⚠️ Partial |
+| Baseline LLM Comparison (Goal 2) | None | Goal 2 | **None** | ❌ Broken |
+
+**Total Traceability Issues:** 9
+
+| # | Issue | Category |
+|---|---|---|
+| 1 | No user journeys section in the PRD | Structural gap |
+| 2 | No journey for ingestion operator experience | Orphan FR |
+| 3 | No journey for evaluation pipeline workflow | Orphan FR |
+| 4 | No journey for pre-build corpus scan workflow | Orphan FR |
+| 5 | Dynamic metadata filtering has no demonstrating flow | Orphan FR |
+| 6 | Goal 2 "superiority over baseline" has no FR or AC defining comparison methodology | Broken chain |
+| 7 | Goal 3 "prepared for future" has no AC validating architectural extensibility | Weak chain |
+| 8 | Vision references "building trust" but no success criterion measures trust | Broken chain |
+| 9 | FERPA reference cites 22 books; PRD cites 25 books | Cross-doc inconsistency |
+
+**Severity:** ⚠️ Warning
+
+**Recommendation:** Add a User Journeys section with at least four journeys: (a) Internal Tester submitting first query, (b) Operator running ingestion pipeline, (c) Evaluator executing RAGAS pipeline, (d) Operator running pre-build corpus scan. Add an AC for the baseline comparison referenced in Goal 2. Add a flow demonstrating dynamic metadata filtering.
+
+> **PM** — *The missing baseline comparison methodology for Goal 2 is the highest-risk finding here. If the team can't agree on what "superiority over a general-purpose chatbot" means quantitatively, you'll have a disputed definition of MVP success at sign-off time. Define it now: same golden dataset through raw GPT-4o without RAG, compare RAGAS scores.*
+>
+> **Architect** — *The 4 orphan FRs don't concern me structurally — they all trace to business objectives and ACs. But the absence of an operator journey for ingestion is a real gap. Someone needs to trigger, monitor, and verify that pipeline. That's an operational workflow, not just code.*
+>
+> **QA** — *I can't write test plans for dynamic metadata filtering without a defined flow. AC #13 says "correctly uses the chunk_type filter" but there's no example of what a metadata-filtered request looks like. I need a Flow D.*
+
+---
+
+### Step 7: Implementation Leakage Validation
+
+#### Leakage by Category
+
+**Frontend Frameworks:** 0 violations
+
+**Backend Frameworks:** 0 violations
+
+**Databases:** 0 violations
+
+**Cloud Platforms:** 1 violation
+- Line 64: `AWS S3` — "stored in a private AWS S3 bucket." Specifies a particular cloud storage provider rather than a capability like "stored in a private cloud object store."
+
+**Infrastructure:** 1 violation
+- Line 71: `self-hosted` — "llmsherpa (self-hosted)" specifies a hosting model, which is an infrastructure/deployment decision.
+
+**Libraries/Tools:** 5 violations
+- Line 70: `PyMuPDF` — Specifies a particular Python PDF library. Should state *what* (classify pages by orientation and text-layer presence) without prescribing *which* library.
+- Line 71: `llmsherpa` — Specifies a particular document parsing tool. Should describe capability (parse hierarchical document structure) without naming the tool.
+- Line 72: `GPT-4o Vision` — Specifies a particular multimodal LLM. Should state capability (vision-capable model to extract content from visual pages).
+- Line 106: `BM25` — Specifies a particular keyword search algorithm. Should describe the need for exact keyword matching without prescribing the algorithm.
+- Line 108: `cross-encoder` — Specifies a particular neural re-ranking architecture. Should state the need for relevance-based re-ranking.
+
+**Other Implementation Details:** 2 violations
+- Line 72: `Markdown` — "generates a detailed, structured Markdown description" prescribes internal intermediate representation between pipeline stages.
+- Line 106: `at the application layer, not in the database` — Explicit architectural placement decision specifying *where* keyword search runs. This is architecture, not a functional requirement.
+
+#### Summary
+
+**Total Implementation Leakage Violations:** 9
+
+**Severity:** ❌ Critical (>5 violations)
+
+**Recommendation:** Section 3.1 is the primary offender (6 of 9 violations). The parsing tool table (lines 68-72) should be refactored to describe capabilities rather than name tools. Section 3.3 should similarly replace algorithm/architecture names with capability descriptions. Move specific tool selections to the Technical Specification or Architecture section.
+
+**Note:** Terms in Sections 4-7 (Architecture, Data Models, API Spec, Security) are expected and not counted. Only Sections 3.1-3.3 (Requirements) are validated for leakage.
+
+> **Architect** — *I actually understand why the author included tool names in Section 3.1 — the three-tool pipeline IS the design decision, and it's documented as Decision #3. The question is whether Decision #3 belongs in the requirements section or only in the Decisions Log + Tech Spec. I'd argue: move the table to Section 6 (Architecture) and leave Section 3.1 with capability descriptions only.*
+>
+> **Dev** — *From an implementer's perspective, having tool names in Section 3 is actually convenient — I know exactly what to use. But I agree it creates a maintenance problem: if we swap PyMuPDF for another library later, we'd have to update both the PRD and the Tech Spec. Capability-level requirements in Section 3 + implementation details in the Tech Spec is cleaner.*
+
+---
+
+### Step 8: Domain Compliance Validation
+
+**Domain:** EdTech (inferred — no frontmatter classification)
+**Complexity:** Medium (regulated)
+
+#### Required Special Sections
+
+**Privacy Compliance (FERPA/COPPA):** Present — Adequate ✅
+
+- Section 7 provides dedicated FERPA coverage with the "school official" designation, state-level privacy law references (NY Ed Law 2-d, SOPIPA), and the Three-Zone Tenant Enclave Model.
+- MVP correctly bounded: Section 2.2 declares "No Student Data" as a non-goal, dramatically reducing the FERPA compliance surface.
+- Forward-looking architecture pre-provisions Zones B/C for future student data.
+- HIPAA-eligible compute selected (Fargate over App Runner, Decision #8).
+- DPA with OpenAI enforces zero data retention.
+- Audit logs designed to never capture raw PII, even in debug mode.
+- COPPA not applicable — users are teachers, not students. Confirmed in FERPA research Section 3.
+
+**Content Guidelines:** Present — Adequate ✅
+
+- 25-book corpus precisely defined with storage location (S3 bucket).
+- Hard refusal mechanism enforces content boundaries (100% refusal rate required for out-of-scope queries).
+- Three-stage hybrid parser ensures content fidelity.
+- Rich metadata schema ensures content provenance traceability.
+- Pre-build corpus scan validates assumptions before ingestion.
+- No explicit content moderation section, but corpus-grounding via RAG and hard refusal mechanism effectively serve this purpose.
+
+**Accessibility Features:** Missing ❌
+
+- Zero mention of WCAG, Section 508, ADA, screen readers, or any accessibility standard anywhere in the PRD.
+- **Mitigating context:** The MVP is API-only with no UI (Section 2.2). Accessibility requirements primarily apply to user-facing interfaces.
+- **Gap:** The PRD does not acknowledge accessibility even as a deferred concern for future UI phases. Target users work in federally funded institutions where Section 508 applies.
+
+**Curriculum Alignment:** Present — Adequate ✅
+
+- Entire product built on the PLC @ Work methodology. The 25-book corpus from Solution Tree is the exclusive knowledge base.
+- Query engine design uses PLC terminology (formative vs. summative assessment, guaranteed and viable curriculum).
+- External curriculum standards explicitly out of scope (appropriate for MVP).
+
+#### Compliance Matrix
+
+| Requirement | Status | Notes |
+|---|---|---|
+| FERPA Awareness | ✅ Met | "School official" pathway stated; HIPAA-eligible compute; DPA with OpenAI; state-level laws referenced |
+| Student Data Privacy | ✅ Met | MVP excludes student data; Tenant Enclave pre-provisions future zones; audit logs PII-safe |
+| Content Scope Definition | ✅ Met | 25-book corpus defined; hard refusal enforces boundaries; pre-build scan required |
+| Accessibility Standards | ❌ Missing | No mention of WCAG, Section 508, or accessibility. Mitigated by API-only scope but not acknowledged |
+| Curriculum Framework Alignment | ✅ Met | Entire product built on PLC @ Work framework; 25-book corpus is exclusive knowledge base |
+
+#### Cross-Document Alignment
+
+| Issue | Severity | Details |
+|---|---|---|
+| Book count discrepancy | ⚠️ Warning | PRD: 25 books. FERPA research: 22 books. Documents out of sync. |
+| FERPA scope alignment | ✅ Pass | PRD's book-only MVP scope consistent with FERPA document's RAG architecture description |
+| OpenAI strategy alignment | ✅ Pass | Both documents agree on DPA and zero-retention approach |
+| "School official" strategy | ✅ Pass | PRD's claim fully supported by FERPA document's four-requirement analysis |
+
+#### Summary
+
+**Required Sections Present:** 3/4
+**Compliance Gaps:** 1 (Accessibility) + 1 cross-document warning (book count)
+
+**Severity:** ⚠️ Warning
+
+**Recommendation:** Add a brief acknowledgment in Section 2.2 or Section 7 stating that accessibility requirements (WCAG 2.1 AA, Section 508) will be addressed when a UI is introduced. Reconcile the book count between PRD (25) and FERPA research (22).
+
+> **PM** — *The accessibility gap is low-risk for the API-only MVP but should be explicitly acknowledged as a deferred concern. When we build the UI in a future phase, we'll be selling to schools that receive federal funds — Section 508 compliance won't be optional. A single sentence in the non-goals section closes this gap.*
+>
+> **QA** — *The FERPA compliance posture is actually impressive for an MVP PRD. The Tenant Enclave model, the PII-safe audit logging, and the DPA requirement show real forward thinking. My only concern is the book count mismatch — if the FERPA research was done on 22 books and we're ingesting 25, we should confirm the additional 3 books don't change any FERPA conclusions.*
+
+---
+
+### Step 9: Project-Type Compliance Validation
+
+**Project Type:** api_backend (inferred — no frontmatter classification)
+
+#### Required Sections
+
+| Section | Status | Notes |
+|---|---|---|
+| **Endpoint Specs** | ✅ Present | Section 5 provides comprehensive spec for `POST /api/v1/query` with request/response schemas and three full flow examples with JSON |
+| **Auth Model** | ✅ Present | Section 5.1 defines static API key via `X-API-Key` header; full auth deferred per Section 2.2 |
+| **Data Schemas** | ✅ Present | Section 4 has full PostgreSQL schema (`books`, `chunks` tables) and Qdrant schema (collection, dimensions, payload fields) |
+| **Error Codes** | ✅ Present | Section 5.4 provides complete error table: 401, 422, 400, 503, 500 with response bodies |
+| **Rate Limits** | ❌ Missing | No mention of rate limiting or request quotas anywhere. Internal-only MVP scope may justify omission, but not explicitly acknowledged |
+| **API Docs** | ❌ Missing | No mention of API documentation tooling (OpenAPI/Swagger). FastAPI auto-generates these, but not stated as a requirement |
+
+#### Excluded Sections (Should Not Be Present)
+
+| Section | Status | Notes |
+|---|---|---|
+| **UX/UI** | ✅ Absent | Section 2.2 explicitly states "No User Interface." Correct for api_backend. |
+| **Visual Design** | ✅ Absent | No visual design specs present. Correct for api_backend. |
+
+#### Compliance Summary
+
+**Required Sections:** 4/6 present
+**Excluded Sections Present:** 0 (correct)
+**Compliance Score:** 67%
+
+**Severity:** ⚠️ Warning
+
+**Recommendation:** Add brief statements for: (1) Rate Limits — even if deferred, explicitly acknowledge as a non-goal or define a minimal policy; (2) API Docs — state whether FastAPI's auto-generated OpenAPI/Swagger docs will be exposed.
+
+> **Dev** — *FastAPI generates OpenAPI docs automatically at `/docs` and `/redoc`. It's zero effort to expose them. Just add a sentence saying "The FastAPI framework's auto-generated OpenAPI documentation will serve as the API reference for internal testers." That's an easy win for compliance.*
+>
+> **Architect** — *Rate limiting is correctly deferred for an internal MVP with a handful of testers. But the PRD should say so explicitly — "No rate limiting for MVP; revisit when exposed to external users." Otherwise someone will raise it in code review.*
+
+---
+
+### Step 10: SMART Requirements Validation
+
+**Total Functional Requirements:** 13
+
+#### Scoring Summary
+
+**All scores >= 3:** 53.8% (7/13)
+**All scores >= 4:** 15.4% (2/13)
+**Overall Average Score:** 3.5/5.0
+
+#### Scoring Table
+
+| FR # | Description (short) | Specific | Measurable | Attainable | Relevant | Traceable | Average | Flag |
+|---|---|---|---|---|---|---|---|---|
+| FR-01 | Ingestion pipeline | 4 | 4 | 4 | 5 | 5 | 4.4 | |
+| FR-02 | Hybrid parsing | 5 | 3 | 4 | 5 | 4 | 4.2 | |
+| FR-03 | Rich metadata | 4 | 4 | 5 | 5 | 4 | 4.4 | |
+| FR-04 | Pre-build corpus scan | 4 | 3 | 5 | 4 | 4 | 4.0 | |
+| FR-05 | Direct answer | 3 | 2 | 4 | 5 | 5 | 3.8 | X |
+| FR-06 | Conditional clarification | 4 | 3 | 4 | 5 | 5 | 4.2 | |
+| FR-07 | Ambiguity detection | 4 | 2 | 3 | 5 | 4 | 3.6 | X |
+| FR-08 | One-question hard limit | 5 | 5 | 5 | 5 | 5 | 5.0 | |
+| FR-09 | Out-of-scope detection | 5 | 5 | 4 | 5 | 5 | 4.8 | |
+| FR-10 | Dynamic metadata filtering | 3 | 2 | 3 | 4 | 3 | 3.0 | X |
+| FR-11 | Semantic search | 3 | 2 | 4 | 5 | 4 | 3.6 | X |
+| FR-12 | Keyword search (BM25) | 4 | 2 | 4 | 5 | 5 | 4.0 | X |
+| FR-13 | Cross-encoder re-ranking | 3 | 2 | 4 | 5 | 4 | 3.6 | X |
+
+**Legend:** 1=Poor, 3=Acceptable, 5=Excellent | **Flag:** X = Score < 3 in one or more categories
+
+#### Improvement Suggestions
+
+**Low-Scoring FRs (Measurable < 3):**
+
+- **FR-05 (Direct Answer):** Add a target metric for direct answer quality in isolation and a target ratio for direct answers vs. clarification triggers.
+- **FR-07 (Ambiguity Detection):** Create a labeled subset of the golden dataset with queries tagged as "ambiguous" or "clear." Define precision/recall targets for the ambiguity detector.
+- **FR-10 (Dynamic Metadata Filtering):** Define test cases for metadata extraction — queries where extraction should/shouldn't fire. Enumerate the complete set of extractable fields rather than using "e.g."
+- **FR-11 (Semantic Search):** Add ablation tests — run RAGAS with vector-only retrieval and compare against full hybrid pipeline.
+- **FR-12 (Keyword Search):** Add a jargon/acronym test set (RTI, SMART goals, DuFour) with expected retrieval results and a recall target.
+- **FR-13 (Re-Ranking):** Define top-k value for how many results survive re-ranking. Add an ablation test comparing RAGAS scores with/without re-ranking.
+
+#### Overall Assessment
+
+**Severity:** ⚠️ Warning (46% flagged — 6 of 13 FRs have at least one score below 3)
+
+**Recommendation:** The consistent weakness is **Measurability** in the retrieval and search components (FR-05, FR-07, FR-10, FR-11, FR-12, FR-13). The RAGAS pipeline provides excellent end-to-end measurability, but no FR has an isolated, testable quality metric. This creates debugging difficulty (can't isolate which stage underperforms if RAGAS scores are low) and regression risk (no component-level baselines).
+
+**Priority actions:**
+1. Add labeled ambiguity test set to golden dataset (FR-07)
+2. Add component-level ablation tests to RAGAS pipeline (FR-11, FR-12, FR-13)
+3. Define metadata extraction test cases with accuracy targets (FR-10)
+4. Define target ratio for direct answers vs. clarification triggers (FR-05)
+
+> **QA** — *The measurability gap in FR-07 (ambiguity detection) is my biggest concern. The two-part test is conceptually clear but operationally untestable without labeled data. I need a golden dataset subset with queries explicitly tagged as ambiguous/clear — otherwise I'm writing test cases based on vibes, not requirements.*
+>
+> **Architect** — *The ablation testing suggestion is excellent. If we can't measure semantic search, BM25, and re-ranking independently, we'll never know which component to tune when end-to-end scores dip. Build the ablation harness into the evaluation pipeline from day one — it's cheap insurance.*
+>
+> **Dev** — *FR-08 and FR-09 are beautifully specified — unambiguous, testable, with exact thresholds. If all FRs were written to that standard, I could implement from the PRD alone without guessing.*
+
+---
+
+### Step 11: Holistic Quality Assessment
+
+#### Document Flow & Coherence
+
+**Assessment:** Good
+
+**Strengths:**
+- Clear, logical narrative arc from vision through goals, features, data models, API spec, architecture, security, and acceptance criteria.
+- Purposeful transitions between sections (Section 1 sets up Section 7's Tenant Enclave rationale; Section 2's evaluation strategy connects to Section 8's ACs).
+- Internally consistent tone, terminology, and detail level across all ten sections.
+- Key Decisions Log (Section 10) provides excellent traceability connecting decisions to rationale.
+- Pre-Build Corpus Analysis (Section 9) demonstrates operational maturity.
+
+**Areas for Improvement:**
+- The "defines what, not how" disclaimer (opening paragraph) is contradicted by implementation detail throughout Sections 3, 4, and 6 — creating cognitive dissonance.
+- No User Journeys section — a reader looking for "what does the educator's interaction look like?" must reconstruct it from scattered API flows.
+- NFR-like content is fragmented across Sections 6 and 7 with no consolidated home.
+- Corpus size mismatch (25 vs. 22 books) undermines credibility as source of truth.
+- AC #1 cross-reference error (Section 6 vs. Section 7).
+
+#### Dual Audience Effectiveness
+
+**For Humans:**
+- Executive-friendly: **Strong.** Sections 1-2 provide a concise strategic narrative readable in under five minutes. Decisions Log is particularly executive-friendly.
+- Developer clarity: **Good with caveats.** Detailed API schemas, data models, flow examples with JSON are highly actionable. But mixing "what" and "how" in Section 3 creates ambiguity about which document is authoritative. Prose-style FRs require interpretation.
+- Stakeholder decision-making: **Good.** 13 ACs provide specific sign-off conditions. Phased evaluation strategy with quantitative thresholds. But Phase 3 dependency on expert-authored answers is not called out as a risk.
+
+**For LLMs:**
+- Machine-readable structure: **Good.** Consistent markdown with numbered sections, tables, code blocks, hierarchical headings. Missing YAML frontmatter reduces metadata availability.
+- Architecture readiness: **Strong.** Tech stack table, data models, and API spec provide enough detail for architecture generation.
+- Epic/Story readiness: **Partial.** Prose-style FRs (not "[Actor] can [capability]" format) require an LLM to interpret and restructure before story generation. Subjective adjectives would propagate unmeasurable criteria into stories.
+
+**Dual Audience Score:** 3.5/5
+
+#### BMAD PRD Principles Compliance
+
+| Principle | Status | Notes |
+|---|---|---|
+| Information Density | ✅ Met | Only 2 mild filler violations. Writing is direct and precise. |
+| Measurability | ❌ Not Met | All 13 FRs are system descriptions, not actor-capability format. 6 subjective adjectives. No NFR section. |
+| Traceability | ⚠️ Partial | Decisions Log is excellent. But AC #1 has broken cross-reference, no requirement IDs, and cross-doc inconsistency. |
+| Domain Awareness | ✅ Met | Strong FERPA awareness, Tenant Enclave model, state-level privacy law references, educator-centered design. |
+| Zero Anti-Patterns | ⚠️ Partial | 2 mild filler violations are cosmetic. But 9 implementation leakage instances in Section 3 are a structural anti-pattern. |
+| Dual Audience | ⚠️ Partial | Good for human readers. Markdown is LLM-parseable. But missing structured FRs, YAML frontmatter, and requirement IDs reduce LLM effectiveness. |
+| Markdown Format | ✅ Met | Clean, consistent markdown. Proper heading hierarchy, tables, code blocks, blockquotes. |
+
+**Principles Met:** 3/7 (Met: 3, Partial: 3, Not Met: 1)
+
+#### Overall Quality Rating
+
+**Rating:** 3.5/5 - Good (lower end)
+
+A well-written, strategically coherent document with strong narrative flow and domain awareness. Falls short of 4/5 due to three structural gaps: (1) requirements not in testable format, (2) no NFR section, and (3) systematically violated "what not how" boundary.
+
+#### Top 3 Improvements
+
+1. **Restructure FRs into Testable Actor-Capability Format**
+   Rewrite all Section 3 requirements as "[Actor] can [capability]" with measurable acceptance criteria. Replace subjective adjectives with quantitative thresholds. Assign unique IDs (FR-001, FR-002...) for traceability. This resolves 24 FR violations and dramatically improves LLM story generation and QA test planning.
+
+2. **Add a Dedicated Non-Functional Requirements Section**
+   Define measurable targets for: response time (P95 latency), concurrent user capacity, availability (uptime during business hours), data retention/backup policy, and logging retention. Even modest MVP targets prevent ambiguous expectations during acceptance testing and resolve the observability/audit logging disconnect.
+
+3. **Enforce the "What Not How" Boundary**
+   Either move all tool names, model IDs, and instance sizes from Sections 3-4 to the Technical Specification (keeping only capability descriptions in the PRD), or rewrite the opening disclaimer to honestly describe the PRD's actual scope. The current state — claiming "what not how" while delivering both — undermines credibility.
+
+#### Summary
+
+**This PRD is:** A well-structured, strategically sound document with strong narrative coherence and domain awareness that is undermined by untestable requirement formatting, a missing NFR section, and a systematically violated scope boundary.
+
+**To make it great:** Focus on the top 3 improvements above.
+
+> **PM** — *I'd rate this 3.5/5 as well. The vision and strategic narrative are genuinely compelling — any executive reading Sections 1-2 would immediately understand the business case. The gap is in the "middle layer" — between strategy and implementation, the requirements section doesn't give QA or LLMs what they need.*
+>
+> **Architect** — *From my perspective, the architecture sections (4-7) are the strongest part of this PRD. The tech stack table, data models, API spec, and security model are all production-ready. The Tenant Enclave model is forward-thinking without being over-engineered. The document's weakness is in the requirements, not the design.*
+>
+> **QA** — *If I had to write a test plan from this PRD today, I could test AC #8 (one-question limit) and AC #9 (out-of-scope refusal) with confidence. For everything else, I'd need clarifications. That's the practical impact of the measurability gap.*
+
+---
+
+### Step 12: Completeness Validation
+
+#### Template Completeness
+
+**Template Variables Found:** 0
+No instances of `{variable}`, `{{variable}}`, `[placeholder]`, TBD, TODO, TBA, or FIXME found anywhere in the document.
+
+#### Content Completeness by Section
+
+| Section | Status | Notes |
+|---|---|---|
+| 1. Vision & Strategic Context | ✅ Complete | Vision statement, business problem, strategic context, long-term vision |
+| 2. MVP Goals & Scope | ✅ Complete | 3 goals, 5 non-goals, three-phase evaluation strategy with RAGAS thresholds |
+| 3. Core Features & Requirements | ✅ Complete | Ingestion (3.1), query engine (3.2), hybrid search (3.3) |
+| 4. Data Models & Schema | ✅ Complete | PostgreSQL (`books`, `chunks` tables), Qdrant (collection, dimensions, payload) |
+| 5. API Specification | ✅ Complete | Endpoint, auth, request/response schemas, errors, 3 full flow examples |
+| 6. Architecture & Technology Stack | ✅ Complete | 10-component tech stack table, DevOps, networking, secrets, observability |
+| 7. Security & Compliance | ✅ Complete | FERPA posture, three-zone Tenant Enclave, 5 security controls |
+| 8. Acceptance Criteria | ✅ Complete | 13 numbered ACs covering infrastructure through quality thresholds |
+| 9. Pre-Build Corpus Analysis | ✅ Complete | 4 scan metrics, 3 DoD conditions |
+| 10. Key Decisions Log | ✅ Complete | 10 decisions with rationale |
+| User Journeys | ❌ Missing | No dedicated section; API flows partially compensate |
+| Non-Functional Requirements | ❌ Missing | No dedicated section; no performance/availability/latency targets |
+
+#### Frontmatter Completeness
+
+| Field | Status |
+|---|---|
+| YAML Frontmatter | ❌ Missing |
+| classification.domain | ❌ Missing |
+| classification.projectType | ❌ Missing |
+| date | ❌ Missing (exists in doc header but not as YAML) |
+
+**Frontmatter Completeness:** 0/4
+
+#### Section-Specific Completeness
+
+**Acceptance Criteria Measurability:** Most measurable
+- ACs 1-10, 13: Fully verifiable with clear pass/fail criteria
+- AC-11: Measurable with specific numeric thresholds (Faithfulness >= 0.80, etc.)
+- AC-12: Partially measurable — "coherent, grounded" is subjective; citation fields are verifiable
+
+**FRs Cover MVP Scope:** Yes — FRs in Section 3 comprehensively cover all in-scope items from Section 2. Non-goals consistently respected.
+
+**Success Criteria Specificity:** Most specific
+- RAGAS thresholds are highly specific with numeric targets
+- Out-of-scope refusal rate (100%) is fully specific
+- Gap: "proving measurable superiority over a general-purpose LLM baseline" lacks a defined comparison methodology
+
+#### Completeness Summary
+
+**Overall Completeness:** 83% (10/12 sections)
+
+**Critical Gaps:** 1
+- Missing Non-Functional Requirements section
+
+**Minor Gaps:** 4
+- Missing YAML frontmatter (0/4 fields)
+- Missing User Journeys section
+- AC-12 uses subjective language ("coherent, grounded") without scoring rubric
+- No baseline comparison methodology for Goal 2's core hypothesis
+
+**Severity:** ⚠️ Warning
+
+**Recommendation:** (1) Add a brief NFR section with baseline performance expectations for MVP. (2) Add YAML frontmatter for BMAD template compliance. (3) Define baseline comparison methodology for the core hypothesis. The missing User Journeys section is lower priority given the API-only MVP.
+
+> **QA** — *83% completeness is solid for a PRD at this stage. The 10 existing sections are genuinely complete — no half-filled tables or TODO stubs. The gaps are structural (missing sections) rather than content holes in existing sections.*
+>
+> **SM** — *The YAML frontmatter gap matters for tooling. If we're using BMAD workflows downstream (story generation, architecture generation), the missing `classification.domain` and `classification.projectType` fields mean every downstream workflow will have to infer context instead of reading it from metadata. Five minutes of frontmatter work saves hours of downstream ambiguity.*
+
+---
+
+## Validation Summary
+
+### Quick Results
+
+| Validation Step | Result | Severity |
+|---|---|---|
+| Pre-Validation: Self-Consistency | 3 errors, 4 warnings | ⚠️ Warning |
+| Step 2: Format Detection | BMAD Variant, 4/6 core sections | ⚠️ Warning |
+| Step 3: Information Density | 2 mild violations | ✅ Pass |
+| Step 4: Product Brief Coverage | N/A (no brief provided) | — |
+| Step 5: Measurability | 24 FR violations, 0 NFRs | ❌ Critical |
+| Step 6: Traceability | 9 issues, 4 orphan FRs | ⚠️ Warning |
+| Step 7: Implementation Leakage | 9 violations | ❌ Critical |
+| Step 8: Domain Compliance | 3/4 sections, accessibility missing | ⚠️ Warning |
+| Step 9: Project-Type Compliance | 4/6 sections, 67% | ⚠️ Warning |
+| Step 10: SMART Requirements | 53.8% acceptable, 6/13 flagged | ⚠️ Warning |
+| Step 11: Holistic Quality | 3.5/5, 3/7 principles met | ⚠️ Warning |
+| Step 12: Completeness | 83%, 10/12 sections | ⚠️ Warning |
+
+### Critical Issues (2)
+
+1. **Measurability (Step 5):** All 13 FRs are written as system descriptions, not in "[Actor] can [capability]" format. 6 subjective adjectives. No dedicated NFR section exists.
+2. **Implementation Leakage (Step 7):** 9 violations in Sections 3.1-3.3 — specific tool names, model IDs, and architectural placement decisions in what should be capability-level requirements.
+
+### Warnings (6)
+
+1. **Traceability (Step 6):** No user journeys section. 4 orphan FRs. Goal 2 baseline comparison has no FR or AC.
+2. **Domain Compliance (Step 8):** No accessibility acknowledgment (mitigated by API-only scope).
+3. **Project-Type Compliance (Step 9):** Missing rate limits and API docs sections.
+4. **SMART Requirements (Step 10):** 6 of 13 FRs have measurability scores below 3. Retrieval components lack isolated test metrics.
+5. **Completeness (Step 12):** Missing YAML frontmatter (0/4 fields). Missing User Journeys and NFR sections.
+6. **Self-Consistency:** Corpus size mismatch (25 vs. 22 books), AC #1 cross-reference error, "what not how" boundary violation.
+
+### Strengths
+
+- **Information Density:** Excellent — only 2 mild filler violations across the entire document.
+- **Strategic Narrative:** Sections 1-2 are compelling and executive-friendly.
+- **Architecture & Security:** Sections 4-7 are production-ready. Tenant Enclave model is forward-thinking.
+- **API Specification:** Section 5 is comprehensive with full flow examples.
+- **Domain Awareness:** Strong FERPA awareness with appropriate MVP scoping.
+- **Key Decisions Log:** 10 well-documented decisions with clear rationale.
+- **Acceptance Criteria:** 13 specific, mostly measurable criteria.
+
+### Overall Status: ⚠️ Warning
+
+**Holistic Quality:** 3.5/5 — Good (lower end)
+
+### Top 3 Improvements
+
+1. **Restructure FRs into Testable Actor-Capability Format** — Resolves 24 FR violations, improves LLM story generation, and enables QA test planning.
+2. **Add a Dedicated NFR Section** — Define response time, availability, concurrency, and retention targets. Resolves the observability disconnect.
+3. **Enforce the "What Not How" Boundary** — Move tool names and implementation details from Section 3 to the Tech Spec, or rewrite the scope disclaimer.
+
+**Recommendation:** This PRD is usable but has issues that should be addressed. The strategic vision, architecture, and API specification are strong. Focus on restructuring the requirements layer (FRs in actor-capability format, add NFRs, remove implementation leakage) to bring it from 3.5/5 to 4.5/5.

@@ -1,8 +1,25 @@
+---
+title: "PRD: PLC Coach Service (MVP)"
+version: "4.2"
+date: "2026-02-26"
+author: "LasChicas.ai"
+classification:
+  domain: edtech
+  projectType: api_backend
+workflowType: prd
+workflow: edit
+stepsCompleted: ['step-e-01-discovery', 'step-e-02-review', 'step-e-03-edit']
+lastEdited: '2026-02-26'
+editHistory:
+  - date: '2026-02-26'
+    changes: 'Validation-driven edit: added User Journeys, NFR section, restructured FRs with IDs and test criteria, removed implementation leakage from requirements, added baseline methodology and AC #14'
+---
+
 # PRD: PLC Coach Service (MVP)
 
-**Document Purpose:** This Product Requirements Document (PRD) defines **what** the MVP of the PLC Coach Service must do and **why** it matters. It is the source of truth for product decisions. Implementation details — including how components are built, the query pipeline execution order, chunking parameters, and infrastructure configuration — are documented in the companion Technical Specification.
+**Document Purpose:** This PRD defines **what** the MVP of the PLC Coach Service must do, **why** it matters, and the key architectural decisions that shape the product. It is the source of truth for product decisions. Where implementation details are included (such as technology selections in the Architecture section), they document confirmed decisions essential for understanding the product's constraints. Detailed implementation guidance — including query pipeline execution order, chunking parameters, and infrastructure configuration — is documented in the companion Technical Specification.
 
-**Author:** LasChicas.ai | **Version:** 4.1 | **Date:** February 25, 2026
+**Author:** LasChicas.ai | **Version:** 4.2 | **Date:** February 26, 2026
 
 ---
 
@@ -10,7 +27,7 @@
 
 The PLC Coach Service is an AI-powered assistant designed to provide educators with immediate, expert guidance grounded in the principles of Professional Learning Communities (PLCs). The core business problem is that educators lack the time to find specific, actionable answers within the dense corpus of Solution Tree's PLC @ Work® series. This service bridges that gap by providing a conversational API to a curated library of PLC books, delivering precise, context-aware answers that help educators improve their practice and are demonstrably superior to advice from general-purpose chatbots.
 
-The long-term vision is a comprehensive coaching ecosystem that can securely incorporate local context — such as meeting transcripts and student data — to provide personalized, FERPA-compliant guidance. The MVP is the critical first step: proving that a high-quality, book-only RAG service can deliver significant value and build a foundation of trust with users. This strategic context explains certain architectural decisions in the MVP — such as the Tenant Enclave security model — that may appear over-engineered for a book-only service but are essential preparation for future phases involving sensitive educational data.
+The long-term vision is a comprehensive coaching ecosystem that can securely incorporate local context — such as meeting transcripts and student data — to provide personalized, FERPA-compliant guidance. The MVP is the critical first step: proving that a high-quality, book-only RAG service can deliver significant value and — through citation accuracy and faithful grounding — begin building trust with users. This strategic context explains certain architectural decisions in the MVP — such as the Tenant Enclave security model — that may appear over-engineered for a book-only service but are essential preparation for future phases involving sensitive educational data.
 
 
 ## 2. MVP Goals & Scope
@@ -35,13 +52,19 @@ The primary goal of the MVP is to validate the core hypothesis: that a well-desi
 
 **No Student Data:** The MVP will not ingest or process any meeting transcripts, notes, or student-identifiable information.
 
-**No Performance Optimization:** The focus is on quality and architectural correctness, not response time or cost-per-query optimization.
+**No Response-Time or Cost Optimization:** The focus is on answer quality and architectural correctness. Response-time tuning, cost-per-query optimization, and load testing are deferred to a future release. Architectural decisions that improve retrieval quality (such as hybrid search and re-ranking) are in scope because they serve the quality goal, not the performance goal.
+
+**No Rate Limiting:** The MVP serves a small internal testing team. Rate limiting and request quotas will be introduced when the API is exposed to external users.
+
+**No Accessibility Compliance:** The MVP is an API-only backend with no user interface. Accessibility requirements (WCAG 2.1 AA, Section 508) will be addressed when a user-facing interface is introduced. Target users work in federally funded institutions where Section 508 compliance is mandatory — this is a critical future requirement.
+
+**No Standalone API Documentation:** The FastAPI framework auto-generates OpenAPI/Swagger documentation at `/docs`. This serves as the API reference for internal testers. A dedicated documentation effort is deferred.
 
 ### 2.3. Evaluation Strategy
 
-A phased evaluation approach will be used to ensure quality can be measured from the earliest stages of the build without creating a bottleneck on expert availability.
+A phased evaluation approach ensures quality can be measured from the earliest stages of the build. The corpus includes *Concise Answers to Frequently Asked Questions About Professional Learning Communities at Work*, which provides canonical, author-written answers to common PLC questions. This book serves as the built-in ground truth for correctness verification, eliminating the need for separately authored expert answer keys.
 
-**Phase 0-A — Pre-Build (Questions First):** Before application coding begins, a golden dataset of real-world educator questions will be assembled from an existing scraped question bank and checked into the repository. The questions alone are the prerequisite for the build to start; expert-authored answers are not required at this stage. The dataset will be organized into two explicit categories:
+**Phase 0-A — Pre-Build (Questions First):** Before application coding begins, a golden dataset of real-world educator questions will be assembled from an existing scraped question bank and checked into the repository. The questions alone are the prerequisite for the build to start. The dataset will be organized into two explicit categories:
 
 | Category | Description | Expected System Behavior | Scoring Pass Condition |
 |---|---|---|---|
@@ -52,67 +75,99 @@ Out-of-scope questions are intentionally included to stress-test the system's ab
 
 **Phase 0-B — During Build (Reference-Free Evaluation):** As the system is built, the RAGAS evaluation pipeline will be run in reference-free mode against the in-scope question set. This measures Faithfulness and Answer Relevancy without requiring a ground truth answer key, giving the team continuous, objective signal throughout development. Out-of-scope questions will be evaluated separately by checking that the system returns the hard refusal response.
 
-**Phase 3 — Final Validation (Full Evaluation):** Before the MVP is considered complete, expert-authored answers will be added to the in-scope questions in the golden dataset. The RAGAS pipeline will then be re-run in full reference-based mode, adding Context Precision and Context Recall scores to produce a complete quality benchmark that formally validates the core hypothesis.
+**Phase 3 — Final Validation (Full Evaluation + Style Preference):** Before the MVP is considered complete, Phase 3 runs two parallel evaluation tracks:
+
+**Track A — Correctness Verification:** For in-scope golden dataset questions that map to entries in the *Concise Answers* book, the system's answers are verified for factual consistency against the canonical source. The RAGAS pipeline is run in full reference-based mode using the *Concise Answers* content as the ground truth, producing Context Precision and Context Recall scores alongside the reference-free metrics from Phase 0-B.
+
+**Track B — Answer Style Preference Collection:** Each golden dataset query is run through two answer style prompts to produce two responses:
+
+| Style | Description |
+|---|---|
+| **Style A — Book-Faithful** | Mirrors the tone of the *Concise Answers* book: direct, canonical, FAQ-style as the authors wrote it. |
+| **Style B — Coaching-Oriented** | Synthesized across the corpus with an action-oriented, explanatory tone designed for busy educators seeking practical next steps. |
+
+Internal testers review both responses per query and record their preference in a structured log capturing: query text, query category (simple fact / complex synthesis / ambiguous), whether the query maps to a *Concise Answers* FAQ entry, both responses, preferred style, correctness assessment (both correct / A only / B only / neither), and optional tester notes.
+
+This is a **data collection exercise, not a pass/fail gate** for MVP. The preference data informs the post-MVP decision on default answer style and system prompt tuning. No minimum preference threshold is prescribed — the goal is to collect enough signal (across the full golden dataset) to make an informed style decision.
+
+**Baseline Comparison Methodology:** To validate the core hypothesis that the RAG service delivers "measurably superior" answers, the same golden dataset of in-scope questions will be submitted to raw GPT-4o without RAG context. The RAGAS Faithfulness and Answer Relevancy scores from the RAG pipeline will be compared against the baseline scores. The RAG pipeline must exceed the baseline on both metrics to confirm the hypothesis. The specific margin of superiority is not prescribed — any statistically meaningful improvement validates the approach.
+
+### 2.4. User Journeys
+
+The MVP serves four distinct user journeys corresponding to the goals in Section 2.1.
+
+**Journey A — Internal Tester Queries the API**
+An internal tester on the evaluation team obtains the API endpoint URL and static API key. They submit a POST request to `/api/v1/query` with a PLC question. The system returns a grounded answer with source citations. The tester verifies that the answer is relevant and that citations point to real content. If the query was ambiguous, the tester receives a clarifying question and submits a follow-up. If the query was out of scope, the tester receives the hard refusal response.
+
+**Journey B — Operator Runs the Ingestion Pipeline**
+A developer or operator triggers the ingestion pipeline via GitHub Actions. The pipeline processes all source PDFs inside the VPC, parsing portrait pages for structure and routing landscape pages through vision processing. The operator monitors progress through CloudWatch logs. Upon completion, the operator verifies that all books appear in the PostgreSQL metadata store and that vector embeddings are present in Qdrant.
+
+**Journey C — Evaluator Runs the Evaluation Pipeline**
+A team member responsible for quality assurance runs the RAGAS evaluation pipeline against the golden dataset. In Phase 0-B, they run reference-free evaluation to get Faithfulness and Answer Relevancy scores and review results to identify underperforming queries. In Phase 3 Track A, they run full reference-based evaluation using the *Concise Answers* book as ground truth. In Phase 3 Track B, they generate both answer styles for each query and record style preferences in the structured preference log. They compare RAG pipeline scores against the baseline LLM scores to validate the core hypothesis.
+
+**Journey D — Operator Runs Pre-Build Corpus Scan**
+Before ingestion begins, an operator runs the automated corpus scan script against all source PDFs in S3. The script produces a report showing page counts, landscape page volumes, and text-layer presence per book. The operator reviews the report, flags any books with unexpected characteristics, and documents handling decisions before ingestion proceeds.
 
 
 ## 3. Core Features & Requirements
 
-### 3.1. High-Quality Ingestion Pipeline
+### 3.1. Ingestion Pipeline
 
-The service's quality is entirely dependent on the quality of the ingestion process. The MVP will implement a sophisticated ingestion pipeline that processes the 25-book corpus into a searchable knowledge base.
+The system's answer quality depends directly on ingestion quality. The ingestion pipeline processes the 25-book corpus into a searchable knowledge base.
 
-**Source Material:** The initial corpus consists of 25 proprietary PLC books from Solution Tree's PLC @ Work® series in PDF format, stored in a private AWS S3 bucket.
+**FR-001 — Source Material Processing:** The ingestion pipeline processes all 25 PLC @ Work® books in PDF format from cloud storage into the vector store and relational metadata database. Test criteria: All 25 books present in both stores; row counts match expected totals.
 
-**Hybrid Layout-Aware Parsing:** The ingestion pipeline uses three tools in sequence, each chosen for the right job:
+**FR-002 — Layout-Aware Parsing:** The pipeline classifies each page by orientation (portrait vs. landscape) and text-layer presence, then routes pages to the appropriate parser:
+- **Portrait pages with text layers** are parsed for hierarchical document structure (headings, sections, paragraphs, lists, tables).
+- **Landscape pages** (reproducibles and worksheets) are processed by a vision-capable model that generates a structured textual description of the visual content.
+- **Pages without text layers** are flagged for manual review.
 
-| Step | Tool | Role |
-|---|---|---|
-| 1 | PyMuPDF | Reads every page and classifies it by orientation (portrait vs. landscape) and whether a text layer is present. Acts as a lightweight sorter — no content is sent externally at this stage. |
-| 2 | llmsherpa (self-hosted) | Handles all standard portrait pages. Parses the document's hierarchical structure — headings, sections, paragraphs, lists, and tables — without sending proprietary content to any external service. |
-| 3 | GPT-4o Vision | Reserved exclusively for landscape-oriented pages identified as reproducibles or worksheets. Renders the page as an image and generates a detailed, structured Markdown description, ensuring the content of these critical visual assets is fully captured. |
+Test criteria: Portrait pages produce structured chunks with hierarchy preserved; landscape pages produce descriptive text chunks tagged with `chunk_type: reproducible`; flagged pages are logged for review. See Section 6 for the specific tools used in each stage.
 
-**Rich Metadata:** Every chunk of ingested text will be stored with a standardized metadata schema that captures book title, authors, SKU, chapter, section, page number, and content type. See the Technical Specification for the full schema definition.
+**FR-003 — Metadata Capture:** Every chunk of ingested text is stored with a standardized metadata schema capturing: book title, authors, SKU, chapter, section, page number, and content type. Test criteria: 100% of chunks have all required metadata fields populated; spot-check sample confirms accuracy against source PDFs. See the Technical Specification for the full schema definition.
 
-**Pre-Build Corpus Scan:** Before ingestion begins, a lightweight automated scan of all 25 PDFs must be completed to validate key assumptions about the corpus (page counts, landscape page volumes, text-layer presence). See Section 9 for the full scan requirements.
+**FR-004 — Pre-Build Corpus Scan:** Before ingestion begins, an automated scan of all 25 source PDFs validates key assumptions about the corpus (page counts, landscape page volumes, text-layer presence). Test criteria: Scan report produced for all 25 books; anomalies documented with handling decisions. See Section 10 for full scan requirements.
 
 ### 3.2. Query Engine
 
-The query engine delivers high-fidelity, context-aware responses through a multi-stage process. The system must handle four distinct query types:
+The query engine handles four distinct query types through a multi-stage process.
 
-**Direct Answer (Clear Query):** When a query is unambiguous and in-scope, the system retrieves the most relevant content and generates a grounded, cited answer in a single round trip.
+**FR-005 — Direct Answer:** When a query is unambiguous and in-scope, the system retrieves relevant content and generates a grounded, cited answer in a single round trip. Test criteria: The system returns a `success` response with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
 
-**Conditional Clarification (Ambiguous Query):** The clarification loop is conditional, not mandatory. When the system detects that a query is ambiguous, it returns a `needs_clarification` response with a clarifying question. When a query is clear and unambiguous, the system answers directly without requiring a follow-up.
+**FR-006 — Conditional Clarification:** When the system detects that a query is ambiguous per the definition in FR-007, it returns a `needs_clarification` response with a clarifying question. When a query is clear, the system answers directly without requiring a follow-up. Test criteria: Ambiguous queries from the labeled test set return `needs_clarification`; clear queries return `success` directly.
 
-**Ambiguity Definition:** A query is considered ambiguous if and only if *both* of the following conditions are true: (a) the answer would differ meaningfully depending on which interpretation is correct, AND (b) the system cannot determine the correct interpretation from the query text alone. A query that is broad but has a single clear answer does not qualify as ambiguous. Ambiguity falls into three recognized categories:
+**FR-007 — Ambiguity Detection:** A query is considered ambiguous if and only if *both* conditions are true: (a) the answer would differ meaningfully depending on interpretation, AND (b) the system cannot determine the correct interpretation from the query text alone. A query that is broad but has a single clear answer does not qualify as ambiguous. Ambiguity falls into three categories:
 
 | Category | Description | Example |
 |---|---|---|
-| **Topic Ambiguity** | The question covers a concept addressed in multiple distinct ways across the corpus, and the answer differs meaningfully by interpretation. | *"What does Learning by Doing say about assessment?"* — could mean formative, summative, or common assessment design. |
-| **Scope Ambiguity** | The question is so broad that a direct answer would be overwhelming or require the system to guess which of many possible angles to take. | *"Tell me about PLCs."* |
-| **Reference Ambiguity** | The question references a term or proper noun that maps to multiple distinct contexts in the corpus. | *"What does DuFour say about teams?"* — DuFour authored multiple books and "teams" appears in dozens of contexts. |
+| **Topic Ambiguity** | The question covers a concept addressed in multiple distinct ways, and the answer differs by interpretation. | *"What does Learning by Doing say about assessment?"* |
+| **Scope Ambiguity** | The question is so broad that a direct answer would require guessing which angle to take. | *"Tell me about PLCs."* |
+| **Reference Ambiguity** | The question references a term that maps to multiple distinct contexts in the corpus. | *"What does DuFour say about teams?"* |
 
-**One-Question Hard Limit:** The system may ask at most **one** clarifying question per session. If the user's follow-up response remains ambiguous, the system must answer using its best interpretation and explicitly state that interpretation at the end of the response (e.g., *"I interpreted your question as being about formative assessment. If you meant something else, please ask again."*). This limit exists to prevent the system from feeling interrogative to busy educators.
+Test criteria: A labeled subset of the golden dataset with queries tagged as "ambiguous" or "clear" measures ambiguity detection precision and recall. Target: precision >= 0.80, recall >= 0.70.
 
-**Out-of-Scope Detection:** If the system determines that a query falls outside the scope of the PLC @ Work® corpus, it will return a hard refusal response rather than attempting to answer. The exact refusal message is defined in Section 2.3.
+**FR-008 — One-Question Hard Limit:** The system asks at most **one** clarifying question per session. If the follow-up remains ambiguous, the system answers using its best interpretation and appends a statement of that interpretation (e.g., *"I interpreted your question as being about formative assessment. If you meant something else, please ask again."*). This limit prevents the system from feeling interrogative to busy educators. Test criteria: 100% of multi-turn sessions contain at most one `needs_clarification` response.
 
-**Dynamic Metadata Filtering:** The system will attempt to extract metadata filters from the query (e.g., a specific book title, author, or a request for a reproducible) to narrow the search to the most relevant content. If a filtered query returns fewer than three results, the system automatically falls back to an unfiltered search to ensure a robust response.
+**FR-009 — Out-of-Scope Detection:** When a query falls outside the PLC @ Work® corpus, the system returns the hard refusal: *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* Test criteria: 100% of out-of-scope golden dataset queries receive the refusal response.
+
+**FR-010 — Dynamic Metadata Filtering:** The system extracts metadata filters from the query when present (book title, author name, content type such as "reproducible") and applies them to narrow the search. Extractable fields: `book_title`, `authors`, `chunk_type`. If a filtered query returns fewer than three results, the system falls back to an unfiltered search. Test criteria: Metadata-filtered test queries (e.g., "What does Learning by Doing say about..." or "Show me a reproducible for...") return results filtered to the correct book or content type.
 
 ### 3.3. Hybrid Search & Re-Ranking
 
-The retrieval mechanism uses a hybrid search approach that combines both semantic and keyword search to maximize the quality of retrieved context.
+The retrieval mechanism combines semantic and keyword search to maximize the quality of retrieved context.
 
-**Semantic Search (Vector):** Finds chunks that are conceptually similar to the query using vector embeddings, even when the exact words do not match. This is effective for broad, conceptual questions.
+**FR-011 — Semantic Search:** The system finds chunks that are conceptually similar to the query using vector embeddings, even when exact words do not match. This is effective for broad, conceptual questions. Test criteria: An ablation test comparing vector-only retrieval RAGAS scores against the full hybrid pipeline establishes the semantic search contribution.
 
-**Keyword Search (BM25):** Finds chunks containing the exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). BM25 is handled at the application layer, not in the database, to ensure scalability as the corpus grows.
+**FR-012 — Keyword Search:** The system finds chunks containing exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). Test criteria: A jargon/acronym test set with expected retrieval results achieves recall >= 0.80 for exact-term queries.
 
-**Re-Ranking:** After both searches run, a cross-encoder re-ranker scores and re-orders the combined candidate set by relevance to the query before the top results are passed to the generation model. This directly addresses the known weakness of simple vector-only search.
+**FR-013 — Re-Ranking:** After both searches run, a relevance-based re-ranker scores and re-orders the combined candidate set before the top results are passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking demonstrates measurable improvement. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
 
 
 ## 4. Data Models & Schema
 
 ### 4.1. PostgreSQL Schema
 
-PostgreSQL serves as the relational metadata store, providing structured lookups and audit logging.
+PostgreSQL is the relational metadata store, providing structured lookups and audit logging.
 
 **`books` table** — one row per book in the corpus:
 
@@ -173,7 +228,7 @@ The API is protected by a static API key passed in the `X-API-Key` request heade
 
 > **`user_id`:** A client-provided string used for logging and tracing only. Not validated against a user store for MVP.
 
-> **`conversation_id`:** A UUID v4 generated by the client when a teacher begins a new interaction. Must be sent with every request in the same conversation thread and is echoed back in every response. For MVP, the server logs this field but does not validate it as a UUID — it is accepted as a plain string. This field is the foundation for memory and conversation history in Phase 2 — having it in place from day one ensures clean, threadable data without a future API contract change.
+> **`conversation_id`:** A UUID v4 generated by the client when a teacher begins a new interaction. Must be sent with every request in the same conversation thread and is echoed back in every response. For MVP, the server logs this field but does not validate it as a UUID — it is accepted as a plain string. This field is the foundation for memory and conversation history in Phase 2 — having it in place from day one ensures clean, threadable data without a future API contract change. **Trade-off acknowledged:** This means the MVP carries a required field that has no server-side enforcement. This is accepted technical debt — the alternative (adding the field later) would require a breaking API contract change for all consumers. See Decision #9 in Section 11.
 
 ### 5.3. Response Schema
 
@@ -308,6 +363,39 @@ When the query falls outside the corpus, the system returns a hard refusal witho
 ```
 
 
+### 5.8. Flow D — Metadata-Filtered Query
+
+When the query references a specific book or content type, the system applies metadata filters to narrow the search.
+
+**Request:** `POST /api/v1/query`
+```json
+{
+  "query": "Show me a reproducible for team norms from Learning by Doing",
+  "user_id": "user-abc-123",
+  "conversation_id": "conv-uuid-1234"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "status": "success",
+  "conversation_id": "conv-uuid-1234",
+  "answer": "Here is a reproducible from 'Learning by Doing' that provides a template for establishing team norms...",
+  "sources": [
+    {
+      "book_title": "Learning by Doing: A Handbook for PLCs at Work",
+      "sku": "BKF219",
+      "page_number": 142,
+      "text_excerpt": "...reproducible: Establishing Team Norms — Directions: Each team member should silently..."
+    }
+  ]
+}
+```
+
+This flow exercises the dynamic metadata filtering described in FR-010. The system extracts `book_title: "Learning by Doing"` and `chunk_type: "reproducible"` from the query and applies them as filters before retrieval.
+
+
 ## 6. Architecture & Technology Stack
 
 The MVP will be built on AWS, using a hybrid of managed and self-hosted services to balance security, cost, and operational simplicity. The guiding principle is: **self-host anything that touches proprietary or sensitive content; use managed services for everything else.**
@@ -325,7 +413,19 @@ The MVP will be built on AWS, using a hybrid of managed and self-hosted services
 | **File Storage (Corpus)** | — | Amazon S3 (Managed) | Source PDFs stored in a private bucket with versioning enabled and access restricted to the ingestion service IAM role. |
 | **LLM & Embeddings** | GPT-4o, `text-embedding-3-large` | OpenAI API (External) | All usage through enterprise-grade, zero-retention endpoints governed by an executed DPA. |
 
-### 6.1. DevOps & Infrastructure
+### 6.1. Ingestion Pipeline Tools
+
+The ingestion pipeline (FR-001 through FR-004) uses a three-stage approach, with each tool chosen for the right job:
+
+| Step | Tool | Role |
+|---|---|---|
+| 1 | PyMuPDF | Reads every page and classifies it by orientation (portrait vs. landscape) and whether a text layer is present. No content is sent externally at this stage. |
+| 2 | llmsherpa (self-hosted) | Handles standard portrait pages. Parses hierarchical structure (headings, sections, paragraphs, lists, tables) without sending proprietary content to any external service. |
+| 3 | GPT-4o Vision | Reserved for landscape-oriented pages (reproducibles/worksheets). Renders the page as an image and generates a structured textual description. |
+
+This three-stage design is documented as Decision #3 in the Key Decisions Log (Section 11).
+
+### 6.2. DevOps & Infrastructure
 
 **Infrastructure as Code:** All AWS resources will be defined using Terraform, ensuring the environment is reproducible and version-controlled.
 
@@ -337,12 +437,12 @@ The MVP will be built on AWS, using a hybrid of managed and self-hosted services
 
 **Secrets Management:** All secrets stored in AWS Secrets Manager. IAM roles with least-privilege permissions govern all service-to-service access. All data encrypted at rest (AWS KMS) and in transit (TLS 1.2+).
 
-**Observability:** For MVP, observability is limited to basic CloudWatch log groups for the Fargate service. Full dashboards, metric alarms, and distributed tracing are deferred to a future release.
+**Observability:** For MVP, observability is limited to basic CloudWatch log groups for the Fargate service. Structured JSON audit logs (Section 7.2) are emitted to the same CloudWatch log stream — there is no separate audit log destination for MVP. Full dashboards, metric alarms, and distributed tracing are deferred to a future release.
 
 
 ## 7. Security & Compliance: The Tenant Enclave Foundation
 
-The architecture is designed to be **compliant by default**. Even though the MVP only handles proprietary book content with no student data, the security model is designed to be ready for future FERPA-constrained data sources.
+The architecture is **compliant by default**. Even though the MVP only handles proprietary book content with no student data, the security model is ready for future FERPA-constrained data sources.
 
 The service will operate as a "school official" under FERPA, which is permissible only with strict contractual and technical controls. The system is also designed to meet the requirements of state-level student privacy laws (e.g., NY Ed Law § 2-d, California's SOPIPA) that mandate controls beyond FERPA.
 
@@ -366,18 +466,38 @@ The system's data architecture is built on three logically segregated zones. For
 
 **API Security:** The MVP API is protected by a static API key passed via the `X-API-Key` header. Full user authentication is deferred to a future release.
 
-**Audit Logging:** Structured JSON logs capture key events (query received, answer generated) with metadata. Logs are configured to never capture raw PII or student-identifiable content, even in debug mode.
+**Audit Logging:** Structured JSON logs capture key events (query received, answer generated) with metadata. These logs are emitted to the CloudWatch log groups described in Section 6.2. Logs are configured to never capture raw PII or student-identifiable content, even in debug mode.
 
 
-## 8. Acceptance Criteria
+## 8. Non-Functional Requirements
+
+Baseline targets for the MVP, scoped to an internal testing tool with a small user base. All targets are subject to revision when the service is exposed to external users.
+
+**NFR-001 — Response Time:** The API responds to query requests within 30 seconds for the 95th percentile under normal load (1–3 concurrent users). This includes retrieval, re-ranking, and LLM generation time. Measured via CloudWatch request duration logs.
+
+**NFR-002 — Availability:** The service maintains 95% uptime during business hours (8 AM – 6 PM ET, weekdays). Downtime for deployments during off-hours is acceptable. Measured via CloudWatch health checks on the ALB.
+
+**NFR-003 — Concurrent Users:** The system supports at least 5 concurrent query requests without degradation beyond NFR-001 thresholds. This reflects the internal testing team size.
+
+**NFR-004 — Data Encryption:** All data is encrypted in transit (TLS 1.2+) and at rest (AWS KMS). No exceptions. Verified via infrastructure audit.
+
+**NFR-005 — Audit Log Retention:** Structured JSON audit logs are retained in CloudWatch for a minimum of 90 days. Logs never contain raw PII or student-identifiable content, even in debug mode.
+
+**NFR-006 — Backup & Recovery:** PostgreSQL (RDS) automated backups are enabled with a 7-day retention period. Qdrant data can be reconstructed by re-running the ingestion pipeline from source PDFs in S3. RTO: 4 hours. RPO: 24 hours.
+
+**NFR-007 — Security Scanning:** Container images are scanned for known vulnerabilities before deployment. Critical and high-severity CVEs must be resolved before production deployment.
+
+
+## 9. Acceptance Criteria
+
 
 The MVP will be considered complete when all of the following criteria are met:
 
-1. All Zone A infrastructure described in Section 6 is provisioned in an AWS account using Terraform. The infrastructure for Zones B and C is defined as commented-out code with documented intent.
+1. All Zone A infrastructure described in Section 7.1 is provisioned in an AWS account using Terraform. The infrastructure for Zones B and C is defined as commented-out code with documented intent.
 
 2. A CI/CD pipeline (GitHub Actions) is in place to automatically build, test, and deploy changes to the Fargate service.
 
-3. The pre-build corpus scan (Section 9) has been completed and its findings reviewed and signed off before ingestion begins.
+3. The pre-build corpus scan (Section 10) has been completed and its findings reviewed and signed off before ingestion begins.
 
 4. The golden dataset (Section 2.3) has been assembled from the scraped question bank, categorized into in-scope and out-of-scope questions, and checked into the repository.
 
@@ -393,18 +513,22 @@ The MVP will be considered complete when all of the following criteria are met:
 
 10. The RAGAS evaluation pipeline is functional and produces Faithfulness and Answer Relevancy scores in reference-free mode against the in-scope golden dataset.
 
-11. In-scope queries meet the RAGAS thresholds defined in Section 2.3: Faithfulness ≥ 0.80, Answer Relevancy ≥ 0.75, Context Precision ≥ 0.70, Context Recall ≥ 0.70.
+11. In-scope queries meet the RAGAS thresholds defined in Section 2.3: Faithfulness ≥ 0.80, Answer Relevancy ≥ 0.75, Context Precision ≥ 0.70, Context Recall ≥ 0.70. Phase 3 Track A validates these scores in full reference-based mode using the *Concise Answers to Frequently Asked Questions* book as the built-in ground truth — no separately authored expert answer key is required.
 
-12. A query for a known in-scope topic returns a coherent, grounded answer with accurate source citations (book title, SKU, page number, and text excerpt).
+12. A query for a known in-scope topic returns a grounded answer that (a) is factually consistent with the cited source passages, (b) does not introduce claims absent from the retrieved context, and (c) includes accurate source citations (book title, SKU, page number, and text excerpt that can be verified against the source PDF).
 
 13. A query for a reproducible correctly uses the `chunk_type` filter and returns relevant results derived from the vision-processed landscape pages.
 
+14. The RAG pipeline's RAGAS Faithfulness and Answer Relevancy scores on the in-scope golden dataset exceed the baseline scores from raw GPT-4o (without RAG context) on the same questions. Any statistically meaningful improvement validates the core hypothesis (Section 2.3, Baseline Comparison Methodology).
 
-## 9. Pre-Build Corpus Analysis
+15. Style preference data has been collected across the full golden dataset as described in Phase 3 Track B (Section 2.3). Both answer styles (Book-Faithful and Coaching-Oriented) have been generated for each query, and tester preferences are recorded in the structured preference log.
+
+
+## 10. Pre-Build Corpus Analysis
 
 Before application coding begins, a lightweight automated scan of the 25-book corpus must be performed and its findings reviewed. This scan de-risks the build by validating key assumptions about the corpus before the ingestion pipeline is written.
 
-### 9.1. Scan Requirements
+### 10.1. Scan Requirements
 
 The pre-build scan must produce the following data for each book:
 
@@ -415,7 +539,7 @@ The pre-build scan must produce the following data for each book:
 | Text-layer presence per page | Identifies scanned/image-only pages that cannot be parsed by llmsherpa and may require special handling |
 | Estimated chunk count | Provides a basis for Qdrant storage sizing and embedding cost calculation |
 
-### 9.2. Definition of Done
+### 10.2. Definition of Done
 
 The pre-build corpus scan is considered complete when:
 
@@ -424,7 +548,7 @@ The pre-build corpus scan is considered complete when:
 - Any books with unexpected characteristics (e.g., a high proportion of image-only pages) have been flagged and a handling decision has been documented before ingestion begins.
 
 
-## 10. Key Decisions Log
+## 11. Key Decisions Log
 
 | Decision # | Decision | Rationale |
 |---|---|---|
@@ -438,3 +562,4 @@ The pre-build corpus scan is considered complete when:
 | #8 | Use Fargate (not App Runner) for compute | App Runner is not on AWS's HIPAA-eligible services list. FERPA compliance requires compute on a HIPAA-eligible service. Fargate is HIPAA-eligible. |
 | #9 | `conversation_id` in every request/response | Adding this field now costs nothing and ensures all conversation data is threadable from day one, enabling Phase 2 memory without a breaking API change. |
 | #10 | Ingestion runs inside VPC via SSM, not on GitHub Actions public runners | Upholds the security principle of never processing proprietary content on external infrastructure. Sets the correct pattern for future FERPA-regulated data ingestion in Zones B and C. |
+| #11 | *Concise Answers to Frequently Asked Questions* book as built-in ground truth | The corpus already includes a book of canonical, author-written answers to common PLC questions. Using it as the ground truth for Phase 3 correctness verification eliminates the need for a separately authored expert answer key, reducing cost and dependency on external subject-matter experts while ensuring answers are validated against the authors' own words. |
