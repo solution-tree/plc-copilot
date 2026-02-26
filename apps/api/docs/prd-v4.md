@@ -1,3 +1,14 @@
+---
+classification:
+  domain: edtech
+  projectType: api_backend
+version: '4.1'
+date: '2026-02-25'
+status: draft
+inputDocuments:
+  - apps/api/docs/research/ferpa-FINAL.md
+---
+
 # PRD: PLC Coach Service (MVP)
 
 **Document Purpose:** This Product Requirements Document (PRD) defines **what** the MVP of the PLC Coach Service must do and **why** it matters. It is the source of truth for product decisions. Implementation details — including how components are built, the query pipeline execution order, chunking parameters, and infrastructure configuration — are documented in the companion Technical Specification.
@@ -27,7 +38,9 @@ The primary goal of the MVP is to validate the core hypothesis: that a well-desi
 
 ### 2.2. Non-Goals (Explicitly Out of Scope for MVP)
 
-**No User Interface (UI):** The MVP is a backend service only, accessed via its API.
+**No Production UI:** The MVP does not include a production-ready user interface.
+
+**Minimal Test Client (In Scope):** A minimal test client will be provided for internal testing only. It consists of a single question input field and a prominent banner stating: *"This is a testing environment only. Responses do not reflect final product output."* No other UI elements, styling, or features are in scope for this client.
 
 **No User Authentication:** The API will be protected by a static API key for internal testing. Full user authentication and management are deferred to a future release.
 
@@ -36,6 +49,8 @@ The primary goal of the MVP is to validate the core hypothesis: that a well-desi
 **No Student Data:** The MVP will not ingest or process any meeting transcripts, notes, or student-identifiable information.
 
 **No Performance Optimization:** The focus is on quality and architectural correctness, not response time or cost-per-query optimization.
+
+**No Accessibility Requirements:** The MVP is a backend API with no user interface. WCAG accessibility compliance is deferred to future portal releases (teachers-portal, admins-portal).
 
 ### 2.3. Evaluation Strategy
 
@@ -63,17 +78,17 @@ The service's quality is entirely dependent on the quality of the ingestion proc
 
 **Source Material:** The initial corpus consists of 25 proprietary PLC books from Solution Tree's PLC @ Work® series in PDF format, stored in a private AWS S3 bucket.
 
-**Hybrid Layout-Aware Parsing:** The ingestion pipeline uses three tools in sequence, each chosen for the right job:
+**Three-Stage Layout-Aware Processing:** The ingestion pipeline processes each PDF page through three sequential stages, routing each page to the appropriate processing path based on its characteristics:
 
-| Step | Tool | Role |
+| Stage | Capability | Notes |
 |---|---|---|
-| 1 | PyMuPDF | Reads every page and classifies it by orientation (portrait vs. landscape) and whether a text layer is present. Acts as a lightweight sorter — no content is sent externally at this stage. |
-| 2 | llmsherpa (self-hosted) | Handles all standard portrait pages. Parses the document's hierarchical structure — headings, sections, paragraphs, lists, and tables — without sending proprietary content to any external service. |
-| 3 | GPT-4o Vision | Reserved exclusively for landscape-oriented pages identified as reproducibles or worksheets. Renders the page as an image and generates a detailed, structured Markdown description, ensuring the content of these critical visual assets is fully captured. |
+| 1 | **Page Classification** — Each page is scanned to determine its orientation (portrait vs. landscape) and whether a text layer is present. Acts as a lightweight sorter; no content leaves the system at this stage. | Runs entirely in-process |
+| 2 | **Structured Text Parsing** — Standard portrait pages with a text layer are parsed for hierarchical document structure: headings, sections, paragraphs, lists, and tables. No proprietary content is sent to any external service. | Handles the majority of corpus pages |
+| 3 | **Visual Page Description** — Landscape-oriented pages identified as reproducibles or worksheets are rendered to an image and processed to generate a detailed, structured Markdown description capturing the full content of the visual asset. | Applies only to landscape/worksheet pages identified in Stage 1 |
 
 **Rich Metadata:** Every chunk of ingested text will be stored with a standardized metadata schema that captures book title, authors, SKU, chapter, section, page number, and content type. See the Technical Specification for the full schema definition.
 
-**Pre-Build Corpus Scan:** Before ingestion begins, a lightweight automated scan of all 25 PDFs must be completed to validate key assumptions about the corpus (page counts, landscape page volumes, text-layer presence). See Section 9 for the full scan requirements.
+**Pre-Build Corpus Scan:** Before ingestion begins, a lightweight automated scan of all 25 PDFs must be completed to validate key assumptions about the corpus (page counts, landscape page volumes, text-layer presence). See Section 10 for the full scan requirements.
 
 ### 3.2. Query Engine
 
@@ -103,9 +118,9 @@ The retrieval mechanism uses a hybrid search approach that combines both semanti
 
 **Semantic Search (Vector):** Finds chunks that are conceptually similar to the query using vector embeddings, even when the exact words do not match. This is effective for broad, conceptual questions.
 
-**Keyword Search (BM25):** Finds chunks containing the exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). BM25 is handled at the application layer, not in the database, to ensure scalability as the corpus grows.
+**Keyword Search:** Finds chunks containing the exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). Keyword search is handled at the application layer, not in the database, to ensure scalability as the corpus grows.
 
-**Re-Ranking:** After both searches run, a cross-encoder re-ranker scores and re-orders the combined candidate set by relevance to the query before the top results are passed to the generation model. This directly addresses the known weakness of simple vector-only search.
+**Re-Ranking:** After both searches run, a re-ranker model scores and re-orders the combined candidate set by relevance to the query before the top results are passed to the generation model. This directly addresses the known weakness of simple vector-only search.
 
 
 ## 4. Data Models & Schema
@@ -156,6 +171,8 @@ Qdrant stores the vector embeddings and a lightweight payload for fast filtering
 
 The service exposes a single endpoint: `POST /api/v1/query`. The endpoint has **no persistent conversational memory between sessions** — each conversation thread is independent. Within a session, the conditional clarification loop uses short-lived Redis state to link a follow-up to its original query.
 
+**Rate Limiting:** No rate limiting is enforced in the MVP (internal testing only). A rate limit policy will be defined and enforced prior to any external or production release.
+
 ### 5.1. Authentication
 
 The API is protected by a static API key passed in the `X-API-Key` request header. All requests without a valid key will receive a `401 Unauthorized` response.
@@ -199,7 +216,7 @@ Each object in the `sources` array contains: `book_title`, `sku`, `page_number`,
 | Scenario | HTTP Status | Response Body |
 |---|---|---|
 | Missing or invalid API key | `401 Unauthorized` | `{"error": "Unauthorized"}` |
-| Malformed request body | `422 Unprocessable Entity` | Standard FastAPI/Pydantic validation error |
+| Malformed request body | `422 Unprocessable Entity` | Standard validation error format |
 | Expired or invalid `session_id` on follow-up | `400 Bad Request` | `{"error": "Session expired or not found. Please resubmit your original query."}` |
 | LLM or vector database service failure | `503 Service Unavailable` | `{"error": "The service is temporarily unavailable. Please try again."}` |
 | Unexpected internal error | `500 Internal Server Error` | `{"error": "An unexpected error occurred."}` |
@@ -369,7 +386,20 @@ The system's data architecture is built on three logically segregated zones. For
 **Audit Logging:** Structured JSON logs capture key events (query received, answer generated) with metadata. Logs are configured to never capture raw PII or student-identifiable content, even in debug mode.
 
 
-## 8. Acceptance Criteria
+## 8. Non-Functional Requirements
+
+The following NFRs formalize the quality attributes described in Section 7. All NFRs apply to all environments unless otherwise noted.
+
+| NFR | Requirement | Measurement Method |
+|---|---|---|
+| **NFR-01 — Encryption in Transit** | All HTTP traffic must use TLS 1.2 or higher. | Verified by load balancer configuration and SSL certificate inspection. |
+| **NFR-02 — Encryption at Rest** | All data in RDS, ElastiCache, and S3 must be encrypted at rest using KMS-managed keys. | Verified by AWS console configuration review and Terraform plan output. |
+| **NFR-03 — Zero Data Retention** | All OpenAI API requests must be configured for zero data retention, governed by an executed DPA. | Verified by API client configuration review and DPA documentation. |
+| **NFR-04 — No PII in Logs** | Application logs must not capture raw query text, user identifiers, or any student-identifiable information, even in debug mode. | Verified by log output review during QA and code review of logging configuration. |
+| **NFR-05 — Availability (Deferred)** | No availability SLA is defined for the MVP internal testing phase. An uptime target will be defined prior to any external or production release. | N/A for MVP. |
+| **NFR-06 — Response Time (Deferred)** | Response time optimization is explicitly out of scope for the MVP (see Section 2.2 Non-Goals). A baseline will be captured during evaluation to inform Phase 2 performance targets. | Baseline captured via RAGAS evaluation run logs. |
+
+## 9. Acceptance Criteria
 
 The MVP will be considered complete when all of the following criteria are met:
 
@@ -377,13 +407,13 @@ The MVP will be considered complete when all of the following criteria are met:
 
 2. A CI/CD pipeline (GitHub Actions) is in place to automatically build, test, and deploy changes to the Fargate service.
 
-3. The pre-build corpus scan (Section 9) has been completed and its findings reviewed and signed off before ingestion begins.
+3. The pre-build corpus scan (Section 10) has been completed and its findings reviewed and signed off before ingestion begins.
 
 4. The golden dataset (Section 2.3) has been assembled from the scraped question bank, categorized into in-scope and out-of-scope questions, and checked into the repository.
 
-5. The ingestion pipeline successfully processes all 25 source PDFs from the S3 bucket into the Qdrant vector store and the PostgreSQL metadata database.
+5. The ingestion pipeline successfully processes all 25 source PDFs from the source PDF bucket into the vector store and the metadata database.
 
-6. The `POST /api/v1/query` endpoint is live and accessible via the public ALB URL, protected by a static API key in the `X-API-Key` header.
+6. The `POST /api/v1/query` endpoint is live and accessible via the public load balancer URL, protected by a static API key in the `X-API-Key` header.
 
 7. The endpoint correctly implements the **conditional** clarification loop: returning a direct `success` response for clear queries and a `needs_clarification` response with a valid `session_id` for ambiguous queries. The clarification loop must trigger only on queries that meet the two-part ambiguity test defined in Section 3.2.
 
@@ -395,36 +425,36 @@ The MVP will be considered complete when all of the following criteria are met:
 
 11. In-scope queries meet the RAGAS thresholds defined in Section 2.3: Faithfulness ≥ 0.80, Answer Relevancy ≥ 0.75, Context Precision ≥ 0.70, Context Recall ≥ 0.70.
 
-12. A query for a known in-scope topic returns a coherent, grounded answer with accurate source citations (book title, SKU, page number, and text excerpt).
+12. A query for a known in-scope topic returns a grounded answer with ≥1 source citation containing book title, SKU, page number, and text excerpt, and earns a Faithfulness score ≥ 0.80 as measured by the RAGAS evaluation pipeline.
 
-13. A query for a reproducible correctly uses the `chunk_type` filter and returns relevant results derived from the vision-processed landscape pages.
+13. A query containing the term "reproducible" or "worksheet" correctly applies the `chunk_type=reproducible` filter and returns ≥1 result derived from vision-processed landscape pages.
 
 
-## 9. Pre-Build Corpus Analysis
+## 10. Pre-Build Corpus Analysis
 
 Before application coding begins, a lightweight automated scan of the 25-book corpus must be performed and its findings reviewed. This scan de-risks the build by validating key assumptions about the corpus before the ingestion pipeline is written.
 
-### 9.1. Scan Requirements
+### 10.1. Scan Requirements
 
 The pre-build scan must produce the following data for each book:
 
 | Metric | Purpose |
 |---|---|
 | Total page count | Validates cost and time estimates for ingestion |
-| Landscape page count | Determines the volume of GPT-4o Vision calls required |
-| Text-layer presence per page | Identifies scanned/image-only pages that cannot be parsed by llmsherpa and may require special handling |
-| Estimated chunk count | Provides a basis for Qdrant storage sizing and embedding cost calculation |
+| Landscape page count | Determines the volume of visual description processing required for worksheet and reproducible pages |
+| Text-layer presence per page | Identifies scanned/image-only pages that cannot be parsed by structured text extraction and may require special handling |
+| Estimated chunk count | Provides a basis for vector store sizing and embedding cost calculation |
 
-### 9.2. Definition of Done
+### 10.2. Definition of Done
 
 The pre-build corpus scan is considered complete when:
 
-- The scan script has been run against all 25 PDFs in the S3 bucket.
+- The scan script has been run against all 25 PDFs in the source corpus bucket.
 - A summary report has been generated and reviewed by the team.
 - Any books with unexpected characteristics (e.g., a high proportion of image-only pages) have been flagged and a handling decision has been documented before ingestion begins.
 
 
-## 10. Key Decisions Log
+## 11. Key Decisions Log
 
 | Decision # | Decision | Rationale |
 |---|---|---|
