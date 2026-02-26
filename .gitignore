@@ -1,0 +1,21 @@
+# BMAD framework (installed tooling, not project source)
+_bmad/
+_bmad-output/
+.claude/commands/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
