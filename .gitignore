@@ -1,6 +1,8 @@
 # BMAD framework (installed tooling, not project source)
 _bmad/
-_bmad-output/
+_bmad-output/**
+!_bmad-output/planning-artifacts/
+!_bmad-output/planning-artifacts/architecture.md
 .claude/commands/
 
 # Python
