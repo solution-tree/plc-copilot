@@ -115,28 +115,28 @@ Before ingestion begins, an operator runs the automated corpus scan script again
 
 The system's answer quality depends directly on ingestion quality. The ingestion pipeline processes the 25-book corpus into a searchable knowledge base.
 
-**FR-001 — Source Material Processing:** The ingestion pipeline processes all 25 PLC @ Work® books in PDF format from cloud storage into the vector store and relational metadata database. Test criteria: All 25 books present in both stores; row counts match expected totals.
+**FR-001 — Source Material Processing:** The operator can trigger ingestion of all 25 PLC @ Work® books in PDF format from cloud storage into the vector store and relational metadata database. Test criteria: All 25 books present in both stores; row counts match expected totals.
 
-**FR-002 — Layout-Aware Parsing:** The pipeline classifies each page by orientation (portrait vs. landscape) and text-layer presence, then routes pages to the appropriate parser:
+**FR-002 — Layout-Aware Parsing:** The operator can run layout-aware parsing that classifies each page by orientation (portrait vs. landscape) and text-layer presence, routing pages to the appropriate parser:
 - **Portrait pages with text layers** are parsed for hierarchical document structure (headings, sections, paragraphs, lists, tables).
 - **Landscape pages** (reproducibles and worksheets) are processed by a vision-capable model that generates a structured textual description of the visual content.
 - **Pages without text layers** are flagged for manual review.
 
 Test criteria: Portrait pages produce structured chunks with hierarchy preserved; landscape pages produce descriptive text chunks tagged with `chunk_type: reproducible`; flagged pages are logged for review. See Section 6 for the specific tools used in each stage.
 
-**FR-003 — Metadata Capture:** Every chunk of ingested text is stored with a standardized metadata schema capturing: book title, authors, SKU, chapter, section, page number, and content type. Test criteria: 100% of chunks have all required metadata fields populated; spot-check sample confirms accuracy against source PDFs. See the Technical Specification for the full schema definition.
+**FR-003 — Metadata Capture:** The operator can verify that every chunk of ingested text is stored with a standardized metadata schema capturing: book title, authors, SKU, chapter, section, page number, and content type. Test criteria: 100% of chunks have all required metadata fields populated; spot-check sample confirms accuracy against source PDFs. See the Technical Specification for the full schema definition.
 
-**FR-004 — Pre-Build Corpus Scan:** Before ingestion begins, an automated scan of all 25 source PDFs validates key assumptions about the corpus (page counts, landscape page volumes, text-layer presence). Test criteria: Scan report produced for all 25 books; anomalies documented with handling decisions. See Section 10 for full scan requirements.
+**FR-004 — Pre-Build Corpus Scan:** The operator can run an automated scan of all 25 source PDFs before ingestion to validate key assumptions about the corpus (page counts, landscape page volumes, text-layer presence). Test criteria: Scan report produced for all 25 books; anomalies documented with handling decisions. See Section 10 for full scan requirements.
 
 ### 3.2. Query Engine
 
 The query engine handles four distinct query types through a multi-stage process.
 
-**FR-005 — Direct Answer:** When a query is unambiguous and in-scope, the system retrieves relevant content and generates a grounded, cited answer in a single round trip. Test criteria: The system returns a `success` response with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
+**FR-005 — Direct Answer:** The API consumer can submit an unambiguous, in-scope query and receive a grounded, cited answer in a single round trip. Test criteria: The response includes a `success` status with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
 
-**FR-006 — Conditional Clarification:** When the system detects that a query is ambiguous per the definition in FR-007, it returns a `needs_clarification` response with a clarifying question. When a query is clear, the system answers directly without requiring a follow-up. Test criteria: Ambiguous queries from the labeled test set return `needs_clarification`; clear queries return `success` directly.
+**FR-006 — Conditional Clarification:** The API consumer receives a `needs_clarification` response with a clarifying question when a query is ambiguous per FR-007, and receives a direct answer when the query is clear. Test criteria: Ambiguous queries from the labeled test set return `needs_clarification`; clear queries return `success` directly.
 
-**FR-007 — Ambiguity Detection:** A query is considered ambiguous if and only if *both* conditions are true: (a) the answer would differ meaningfully depending on interpretation, AND (b) the system cannot determine the correct interpretation from the query text alone. A query that is broad but has a single clear answer does not qualify as ambiguous. Ambiguity falls into three categories:
+**FR-007 — Ambiguity Detection:** The API consumer's query is classified as ambiguous if and only if *both* conditions are true: (a) the answer would reference different books, chapters, or concepts depending on interpretation, AND (b) the correct interpretation cannot be determined from the query text alone. A query that is broad but has a single clear answer does not qualify as ambiguous. Ambiguity falls into three categories:
 
 | Category | Description | Example |
 |---|---|---|
@@ -146,21 +146,21 @@ The query engine handles four distinct query types through a multi-stage process
 
 Test criteria: A labeled subset of the golden dataset with queries tagged as "ambiguous" or "clear" measures ambiguity detection precision and recall. Target: precision >= 0.80, recall >= 0.70.
 
-**FR-008 — One-Question Hard Limit:** The system asks at most **one** clarifying question per session. If the follow-up remains ambiguous, the system answers using its best interpretation and appends a statement of that interpretation (e.g., *"I interpreted your question as being about formative assessment. If you meant something else, please ask again."*). This limit prevents the system from feeling interrogative to busy educators. Test criteria: 100% of multi-turn sessions contain at most one `needs_clarification` response.
+**FR-008 — One-Question Hard Limit:** The API consumer receives at most **one** clarifying question per session. If the follow-up remains ambiguous, the response includes the best-interpretation answer with a statement of that interpretation appended (e.g., *"I interpreted your question as being about formative assessment. If you meant something else, please ask again."*). This limit prevents the system from feeling interrogative to busy educators. Test criteria: 100% of multi-turn sessions contain at most one `needs_clarification` response.
 
-**FR-009 — Out-of-Scope Detection:** When a query falls outside the PLC @ Work® corpus, the system returns the hard refusal: *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* Test criteria: 100% of out-of-scope golden dataset queries receive the refusal response.
+**FR-009 — Out-of-Scope Detection:** The API consumer receives a hard refusal when submitting a query outside the PLC @ Work® corpus: *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* Test criteria: 100% of out-of-scope golden dataset queries receive the refusal response.
 
-**FR-010 — Dynamic Metadata Filtering:** The system extracts metadata filters from the query when present (book title, author name, content type such as "reproducible") and applies them to narrow the search. Extractable fields: `book_title`, `authors`, `chunk_type`. If a filtered query returns fewer than three results, the system falls back to an unfiltered search. Test criteria: Metadata-filtered test queries (e.g., "What does Learning by Doing say about..." or "Show me a reproducible for...") return results filtered to the correct book or content type.
+**FR-010 — Dynamic Metadata Filtering:** The API consumer can include metadata references in a query (book title, author name, content type such as "reproducible") and receive results filtered to those criteria. Extractable fields: `book_title`, `authors`, `chunk_type`. If a filtered query returns fewer than three results, the search falls back to unfiltered mode. Test criteria: Metadata-filtered test queries (e.g., "What does Learning by Doing say about..." or "Show me a reproducible for...") return results filtered to the correct book or content type.
 
 ### 3.3. Hybrid Search & Re-Ranking
 
 The retrieval mechanism combines semantic and keyword search to maximize the quality of retrieved context.
 
-**FR-011 — Semantic Search:** The system finds chunks that are conceptually similar to the query using vector embeddings, even when exact words do not match. This is effective for broad, conceptual questions. Test criteria: An ablation test comparing vector-only retrieval RAGAS scores against the full hybrid pipeline establishes the semantic search contribution.
+**FR-011 — Semantic Search:** The API consumer can retrieve content that is conceptually similar to the query via vector embeddings, even when exact words do not match. This is effective for broad, conceptual questions. Test criteria: An ablation test comparing vector-only retrieval RAGAS scores against the full hybrid pipeline shows a minimum average delta of 0.03 on Faithfulness or Answer Relevancy.
 
-**FR-012 — Keyword Search:** The system finds chunks containing exact terms from the query. This is critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). Test criteria: A jargon/acronym test set with expected retrieval results achieves recall >= 0.80 for exact-term queries.
+**FR-012 — Keyword Search:** The API consumer can retrieve content by exact keyword match, critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). Test criteria: A jargon/acronym test set with expected retrieval results achieves recall >= 0.80 for exact-term queries.
 
-**FR-013 — Re-Ranking:** After both searches run, a relevance-based re-ranker scores and re-orders the combined candidate set before the top results are passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking demonstrates measurable improvement. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
+**FR-013 — Re-Ranking:** The API consumer receives results that have been scored and re-ordered by a relevance-based re-ranker after both searches complete, with the top results passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking shows a minimum average improvement of 0.05 on Faithfulness or Answer Relevancy. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
 
 
 ## 4. Data Models & Schema
@@ -473,17 +473,17 @@ The system's data architecture is built on three logically segregated zones. For
 
 Baseline targets for the MVP, scoped to an internal testing tool with a small user base. All targets are subject to revision when the service is exposed to external users.
 
-**NFR-001 — Response Time:** The API responds to query requests within 30 seconds for the 95th percentile under normal load (1–3 concurrent users). This includes retrieval, re-ranking, and LLM generation time. Measured via CloudWatch request duration logs.
+**NFR-001 — Response Time:** The API responds to query requests within 30 seconds for the 95th percentile under normal load (1–3 concurrent users). This includes retrieval, re-ranking, and LLM generation time. Measured via request duration monitoring (see Section 6 for tooling).
 
-**NFR-002 — Availability:** The service maintains 95% uptime during business hours (8 AM – 6 PM ET, weekdays). Downtime for deployments during off-hours is acceptable. Measured via CloudWatch health checks on the ALB.
+**NFR-002 — Availability:** The service maintains 95% uptime during business hours (8 AM – 6 PM ET, weekdays). Downtime for deployments during off-hours is acceptable. Measured via health-check monitoring on the load balancer (see Section 6 for tooling).
 
 **NFR-003 — Concurrent Users:** The system supports at least 5 concurrent query requests without degradation beyond NFR-001 thresholds. This reflects the internal testing team size.
 
-**NFR-004 — Data Encryption:** All data is encrypted in transit (TLS 1.2+) and at rest (AWS KMS). No exceptions. Verified via infrastructure audit.
+**NFR-004 — Data Encryption:** All data is encrypted in transit (TLS 1.2+) and at rest via a managed encryption key service. No exceptions. Verified via infrastructure audit (see Section 6 for tooling).
 
-**NFR-005 — Audit Log Retention:** Structured JSON audit logs are retained in CloudWatch for a minimum of 90 days. Logs never contain raw PII or student-identifiable content, even in debug mode.
+**NFR-005 — Audit Log Retention:** Structured JSON audit logs are retained in the centralized log store for a minimum of 90 days. Logs never contain raw PII or student-identifiable content, even in debug mode. See Section 6 for tooling.
 
-**NFR-006 — Backup & Recovery:** PostgreSQL (RDS) automated backups are enabled with a 7-day retention period. Qdrant data can be reconstructed by re-running the ingestion pipeline from source PDFs in S3. RTO: 4 hours. RPO: 24 hours.
+**NFR-006 — Backup & Recovery:** Relational database automated backups are enabled with a 7-day retention period. Vector store data can be reconstructed by re-running the ingestion pipeline from source PDFs in cloud storage. RTO: 4 hours. RPO: 24 hours. See Section 6 for tooling.
 
 **NFR-007 — Security Scanning:** Container images are scanned for known vulnerabilities before deployment. Critical and high-severity CVEs must be resolved before production deployment.
 
