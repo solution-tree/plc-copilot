@@ -12,7 +12,7 @@ lastStep: 8
 status: 'complete'
 completedAt: '2026-02-26'
 lastRevisedAt: '2026-02-27'
-revisionNote: 'Aligned with PRD v4.2 — Terraform/CI/CD in scope, RPO corrected to 24h, container scanning added, ambiguity metrics added, minimal test client added, eval pipeline extended for baseline comparison and style preference collection'
+revisionNote: 'Aligned with PRD v4.6 — FR count expanded 14→21 (added Evaluation Pipeline FR-014–017 and Cross-Cutting FR-018–021), NFR-008/009 added, golden dataset ambiguous minimum raised to 10, explicit query pipeline stage ordering, tightened test criteria on FR-002/005/010/011/013/016'
 ---
 
 # Architecture Decision Document
@@ -25,37 +25,45 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 ### Requirements Overview
 
-**Functional Requirements (14 FRs across 3 capability areas):**
+**Functional Requirements (21 FRs across 5 capability areas):**
 
-- **Ingestion Pipeline (FR-1–5):** Three-stage PDF processing — page classification,
+- **Ingestion Pipeline (FR-001–004):** Three-stage PDF processing — page classification,
   hierarchical text parsing, and visual content extraction for landscape pages. Rich
   metadata schema mandatory on every chunk; pre-build corpus scan required before any
   ingestion begins.
-- **Query Engine (FR-6–11):** Four distinct query flows (direct answer, conditional
-  clarification, out-of-scope hard refusal, metadata-filtered). These four flows are
-  routed by an explicit query classifier/router layer that runs before retrieval — a
-  lightweight GPT-4o-mini structured call that classifies query intent and extracts
-  metadata filters in a single pass. One-clarifying-question hard limit per session.
-  Automatic fallback from filtered to unfiltered search when results < 3.
-- **Hybrid Search & Re-Ranking (FR-12–14):** BM25 keyword search + vector semantic
+- **Query Engine (FR-005–010):** Four distinct query flows (direct answer, conditional
+  clarification, out-of-scope hard refusal, metadata-filtered). Every inbound query
+  passes through stages in order: (1) out-of-scope detection, (2) ambiguity detection,
+  (3) metadata filter extraction, (4) hybrid retrieval and re-ranking, (5) answer
+  generation. A query rejected at any stage does not proceed to subsequent stages.
+  One-clarifying-question hard limit per session. Automatic fallback from filtered to
+  unfiltered search when results < 3.
+- **Hybrid Search & Re-Ranking (FR-011–013):** BM25 keyword search + vector semantic
   search (both top-N=20, tunable), merged into a candidate set of M=40, re-ranked by
   cross-encoder to top-K=5. All retrieval parameters are capability parameters — not
   fixed implementation details.
+- **Evaluation Pipeline (FR-014–017):** Reference-free evaluation (Phase 0-B),
+  reference-based evaluation using *Concise Answers* as ground truth (Phase 3 Track A),
+  baseline comparison against raw GPT-4o without RAG context (AC #14), and style
+  preference data collection with Book-Faithful vs. Coaching-Oriented answer styles
+  (Phase 3 Track B, AC #15).
+- **Cross-Cutting Capabilities (FR-018–021):** Static API key authentication
+  (`X-API-Key` header), structured JSON audit logging (no PII even in debug mode),
+  health check endpoint (API + vector DB + relational DB readiness), and minimal test
+  client (single input field + disclaimer banner for internal testers).
 
-**Non-Functional Requirements (19 NFRs):**
+**Non-Functional Requirements (9 NFRs):**
 
-- **Answer Quality (NFR-1–6):** RAGAS thresholds (Faithfulness ≥ 0.80, Answer
-  Relevancy ≥ 0.75, Context Precision/Recall ≥ 0.70), 100% out-of-scope refusal rate,
-  1-question-per-session interaction limit.
-- **Performance (NFR-7–9):** p95 response time ≤ 30s for direct answers — high-risk
-  NFR given multi-stage pipeline latency. The cross-encoder re-ranker loads in-process
-  at Fargate startup; container cold-start time and ECS health check strategy must be
-  accounted for. 95% availability during business hours, ≥5 concurrent users without
-  degradation.
-- **Security & Operational (NFR-11–19):** TLS 1.2+ everywhere, AWS KMS at rest, zero
-  OpenAI data retention, no PII in logs, 15-min session expiry, 90-day audit log
-  retention, structured JSON logging (CloudWatch), RTO 4h / RPO 1h, manual
-  re-ingestion trigger.
+- **Performance (NFR-001–003):** p95 response time ≤ 30s for direct answers — high-risk
+  NFR given multi-stage pipeline latency. 95% availability during business hours. ≥5
+  concurrent users without degradation.
+- **Security & Operational (NFR-004–007):** TLS 1.2+ everywhere, AWS KMS at rest, 90-day
+  audit log retention with no PII in logs, RTO 4h / RPO 24h, container vulnerability
+  scanning (critical/high CVEs block deployment).
+- **Pipeline & Infrastructure (NFR-008–009):** Full ingestion pipeline completes within
+  8 hours; individual book failures do not block remaining corpus. API container ready
+  to serve requests within 120 seconds of task start (including model loading); cold
+  starts during internal testing are acceptable.
 
 **API Response Format (locked):**
 
@@ -67,9 +75,10 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 - Primary domain: API Backend / RAG Service
 - Complexity level: High
-- Estimated architectural components: 10 (API service, query classifier/router,
+- Estimated architectural components: 12 (API service, query classifier/router,
   ingestion pipeline, Qdrant vector store, PostgreSQL, Redis, S3, OpenAI API, RAGAS
-  evaluation pipeline, SSM ingestion workflow)
+  evaluation pipeline, baseline comparison pipeline, style preference collection,
+  SSM ingestion workflow)
 
 ### MVP Infrastructure Scope
 
@@ -131,7 +140,7 @@ future phases and low effort.
 - **Hard constraint — OpenAI zero-retention DPA:** Must be executed before production
   use.
 - **Dependency — pre-build corpus scan:** Must complete before application coding
-  begins (FR-5).
+  begins (FR-004).
 - **Dependency — golden dataset:** Questions in `tests/` (JSON) assembled before build
   starts. Questions only — no book excerpts — safe for public CI runners.
 - **PDF corpus location:** Local `corpus/` directory (gitignored) during development;
@@ -147,7 +156,10 @@ future phases and low effort.
   — separate entry points, Docker images, and IAM roles. Must not share imports.
 - **Query classifier/router:** Single GPT-4o-mini structured call classifies intent
   (direct / clarification / out-of-scope / metadata-filtered) and extracts filters
-  before retrieval. Pre-retrieval out-of-scope detection saves compute on junk queries.
+  before retrieval. Pipeline stages execute in strict order per PRD Section 3.2:
+  (1) out-of-scope detection → (2) ambiguity detection → (3) metadata filter
+  extraction → (4) hybrid retrieval and re-ranking → (5) answer generation. A query
+  rejected at any stage does not proceed to subsequent stages.
 - **Evaluation pipeline as product capability:** RAGAS proves measurable superiority
   over general LLMs — it is a product deliverable, not just a test harness. Must be
   versioned, accessible to CI, and runnable in both reference-free (build) and
@@ -207,12 +219,21 @@ docker compose up -d
 - uv.lock for reproducible installs across environments
 
 **Package Structure:**
-- `apps/api/` — FastAPI service entry point (`fastapi[standard]`, LlamaIndex, Pydantic)
+- `apps/api/` — FastAPI service entry point (`fastapi[standard]`, Pydantic, `llama-index-retrievers-bm25`)
 - `apps/ingestion/` — ingestion pipeline entry point (PyMuPDF, llmsherpa client,
-  LlamaIndex ingestion nodes)
+  `qdrant-client`, `openai` SDK for embeddings)
 - `eval/` — RAGAS evaluation scripts
 - `tests/` — golden dataset (JSON) + pytest test suite
 - `corpus/` — PDF source files (gitignored)
+
+**LlamaIndex Role (clarification):** LlamaIndex is used as a **component library**, not
+as the orchestration layer. The query pipeline uses a custom `orchestrator.py` with
+explicit stage control. LlamaIndex provides `BM25Retriever` for keyword search (PRD
+Decision #5) and may be used for node/document abstractions during ingestion. The
+custom orchestrator is required because the PRD mandates strict stage ordering with
+short-circuit logic (Section 3.2) that LlamaIndex's built-in `QueryEngine` cannot
+express. Do not use `RetrieverQueryEngine`, `RouterQueryEngine`, or other high-level
+LlamaIndex orchestration abstractions.
 
 **API Runtime:**
 - `fastapi dev` — development with live reload (via fastapi-cli, included in
@@ -227,12 +248,15 @@ docker compose up -d
 **Code Organization Pattern:**
 
 ```
-apps/api/src/
-  api/        ← routes, dependencies, auth middleware
+apps/api/src/api_service/          ← Python package name: api_service
+  api/        ← routes, dependencies, auth
   pipeline/   ← query classifier, retrieval, reranking, generation
   models/     ← Pydantic schemas (request/response)
-  core/       ← config, logging, startup
+  core/       ← startup, dependencies (NOT config or logging — those live in libs/shared/)
 ```
+
+**Import path convention:** All imports from the API package use `from api_service.pipeline.classifier import ...`,
+not `from pipeline.classifier import ...`. The `api_service` nesting is the Python package name.
 
 **Development Experience:**
 - `uv run fastapi dev apps/api/src/main.py` — live reload during development
@@ -284,7 +308,7 @@ implementation tasks before any feature work begins.
 | AWS KMS | At-rest encryption for RDS, S3, EBS | — | Configured at infrastructure provisioning time, not in application code |
 
 ```python
-# apps/api/src/core/config.py
+# libs/shared/src/shared/config.py
 class Settings(BaseSettings):
     openai_api_key: SecretStr
     qdrant_host: str
@@ -314,7 +338,7 @@ settings = Settings()
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Health check endpoint | `GET /health` → `{"status": "ok", "model_loaded": true}` | ECS health check; ALB only routes after re-ranker model warm |
+| Health check endpoint | `GET /health` → `{"status": "ok", "model_loaded": true, "qdrant": "ok", "postgres": "ok"}` | ECS health check; ALB only routes after re-ranker model warm AND Qdrant + PostgreSQL connectivity confirmed (PRD FR-020). Returns non-200 if any dependency is unreachable. |
 | Container base image | `python:3.11-slim` | Minimal footprint |
 | ECS health check config | Path: `/health`, interval: 30s, timeout: 10s, healthy: 2, unhealthy: 3 | Allows ~90s for re-ranker to load |
 | Secrets injection | AWS Secrets Manager → ECS task definition env vars | pydantic-settings reads as standard env vars |
@@ -343,8 +367,8 @@ settings = Settings()
 11. Response models + `POST /api/v1/query` route
 12. Redis clarification session management
 13. Ingestion pipeline (separate package)
-14. RAGAS evaluation pipeline (reference-free + baseline comparison + style generation)
-15. Minimal test client (`apps/client/`)
+14. RAGAS evaluation pipeline — FR-014 reference-free, FR-015 reference-based, FR-016 baseline comparison, FR-017 style preference collection
+15. Minimal test client (`apps/client/`) — FR-021
 
 **Cross-component dependencies:**
 - `pydantic-settings` `Settings` is a dependency of every component — must exist first
@@ -403,20 +427,29 @@ settings = Settings()
 - New pipeline stage → `pipeline/{stage}.py`
 - New Pydantic schema → `models/schemas.py` (split only if >300 lines)
 - New DB model → `libs/shared/models/db.py`
-- New config value → `Settings` class in `core/config.py`
+- New config value → `Settings` class in `libs/shared/config.py` (single source of truth)
 
 ### Process Patterns
 
 **Error Handling:**
-- Custom exception hierarchy: base `AppError` with subclasses (`OutOfScopeError`,
-  `ClassificationError`, `RetrievalError`)
-- Single exception handler in `core/` translates custom exceptions to PRD-specified
-  HTTP responses
+- Custom exception hierarchy: base `AppError` with subclasses
+  (`ClassificationError`, `RetrievalError`, `GenerationError`)
+- **`OutOfScopeError` is NOT an exception** — out-of-scope is a valid pipeline result
+  that returns `200 OK` with `status: "out_of_scope"` per PRD Section 5.3. The
+  orchestrator returns an `OutOfScopeResponse` Pydantic model, not an exception.
+  Similarly, `needs_clarification` is a valid result, not an error.
+- Exception handler in `core/` translates only true error exceptions
+  (`ClassificationError`, `RetrievalError`, etc.) to PRD Section 5.4 HTTP error
+  responses (503, 500)
 - Pipeline code never imports `HTTPException` — only the route layer does
 - No bare `except Exception` — catch specific exceptions or let them propagate
+- **Ingestion exception hierarchy:** `IngestionError` base with subclasses
+  (`PageClassificationError`, `VisionExtractionError`, `BookIngestionError`). Per
+  NFR-008, `BookIngestionError` is caught per-book with continue-on-failure — the
+  pipeline logs the failure and proceeds to the next book.
 
 **Logging:**
-- `structlog` configured once in `core/logging.py`
+- `structlog` configured once in `libs/shared/logging.py` (shared by API and ingestion)
 - Import `get_logger` everywhere — never `print()`, never stdlib `logging` directly
 - Bound loggers for context fields (`request_id`, `book_id`)
 - Structured JSON output, no PII even in debug mode
@@ -496,8 +529,8 @@ async def query(request: QueryRequest, pipeline: QueryPipeline = Depends(get_pip
     result = await pipeline.execute(request)
     return result
 
-# Custom exception from pipeline
-raise OutOfScopeError(query=request.query)
+# Out-of-scope is a result, not an exception — returns 200 OK
+return OutOfScopeResponse(conversation_id=request.conversation_id, message=REFUSAL_TEXT)
 
 # Structured logging
 logger = get_logger()
@@ -520,6 +553,9 @@ async def query(request: QueryRequest, openai: AsyncOpenAI = Depends(get_openai)
 # BAD — HTTP concern in pipeline
 raise HTTPException(status_code=400, detail="Out of scope")
 
+# BAD — treating out-of-scope as an exception (it's a valid 200 OK result)
+raise OutOfScopeError(query=request.query)
+
 # BAD — print instead of structlog
 print(f"Processing query: {request.query}")
 
@@ -535,22 +571,27 @@ async def classify(self, query: str): ...
 
 ### Requirements to Structure Mapping
 
-**FR-1–5 (Ingestion Pipeline) → `apps/ingestion/`**
-- Page classification, hierarchical text parsing, visual content extraction
-- Metadata schema enforcement, pre-build corpus scan
+**FR-001–004 (Ingestion Pipeline) → `apps/ingestion/`**
+- Source material processing, layout-aware parsing, metadata capture, corpus scan
 
-**FR-6–11 (Query Engine) → `apps/api/src/api_service/pipeline/` + `apps/api/src/api_service/api/`**
+**FR-005–010 (Query Engine) → `apps/api/src/api_service/pipeline/` + `apps/api/src/api_service/api/`**
 - Query classifier/router, four query flows, clarification sessions
 - Metadata-filtered retrieval, fallback logic
+- Explicit pipeline stage ordering: out-of-scope → ambiguity → filters → retrieval → generation
 
-**FR-12–14 (Hybrid Search & Re-Ranking) → `apps/api/src/api_service/pipeline/`**
+**FR-011–013 (Hybrid Search & Re-Ranking) → `apps/api/src/api_service/pipeline/`**
 - BM25 + vector search, candidate merging, cross-encoder re-ranking
 
-**Cross-Cutting → `libs/shared/`**
-- DB models, chunk schema, config, logging (shared between API and ingestion)
+**FR-014–017 (Evaluation Pipeline) → `eval/`**
+- Reference-free evaluation (`run_ragas.py`), reference-based evaluation (`run_ragas.py`)
+- Baseline comparison (`run_baseline.py`), style preference collection (`run_style_comparison.py`)
 
-**Evaluation → `eval/`**
-- RAGAS pipeline (reference-free for build, reference-based for Phase 3)
+**FR-018–021 (Cross-Cutting Capabilities) → `apps/api/src/api_service/api/` + `libs/shared/` + `apps/client/`**
+- API key auth (`security/auth.py`), audit logging (`libs/shared/logging.py`)
+- Health check (`routes/health.py`), minimal test client (`apps/client/`)
+
+**Shared Code → `libs/shared/`**
+- DB models, chunk schema, config, logging (shared between API and ingestion)
 
 ### Complete Project Directory Structure
 
@@ -612,26 +653,27 @@ plc-copilot/
 │   │   │       ├── main.py                 # FastAPI app, lifespan, router includes
 │   │   │       ├── core/
 │   │   │       │   ├── __init__.py
-│   │   │       │   ├── startup.py          # lifespan: client init, re-ranker model load
+│   │   │       │   ├── startup.py          # lifespan: client init, re-ranker model load, BM25 index build
 │   │   │       │   └── dependencies.py     # Depends providers (get_pipeline, get_db, etc.)
+│   │   │       │   # NOTE: config and logging live in libs/shared/, not here
 │   │   │       ├── api/
 │   │   │       │   ├── __init__.py
 │   │   │       │   ├── routes/
 │   │   │       │   │   ├── __init__.py
 │   │   │       │   │   ├── query.py        # POST /api/v1/query
 │   │   │       │   │   └── health.py       # GET /health
-│   │   │       │   ├── middleware/
+│   │   │       │   ├── security/
 │   │   │       │   │   ├── __init__.py
-│   │   │       │   │   └── auth.py         # X-API-Key validation via Depends
+│   │   │       │   │   └── auth.py         # X-API-Key validation via FastAPI Depends + Security (NOT ASGI middleware)
 │   │   │       │   └── exception_handlers.py  # AppError → HTTP response mapping
 │   │   │       ├── pipeline/
 │   │   │       │   ├── __init__.py
 │   │   │       │   ├── classifier.py       # GPT-4o-mini query classification + filter extraction
 │   │   │       │   ├── retriever.py        # hybrid search: BM25 + vector, fallback logic
-│   │   │       │   ├── reranker.py         # cross-encoder re-ranking (top-K=5)
+│   │   │       │   ├── reranker.py         # cross-encoder/ms-marco-MiniLM-L-6-v2 re-ranking (top-K=5)
 │   │   │       │   ├── generator.py        # GPT-4o answer generation with context
-│   │   │       │   ├── session.py          # Redis clarification session management
-│   │   │       │   └── orchestrator.py     # QueryPipeline: classifier → retriever → reranker → generator
+│   │   │       │   ├── session.py          # Redis clarification session management (see Session Schema below)
+│   │   │       │   └── orchestrator.py     # QueryPipeline: stages 1–5 with short-circuit logic
 │   │   │       └── models/
 │   │   │           ├── __init__.py
 │   │   │           └── schemas.py          # Pydantic: QueryRequest, SuccessResponse, ClarificationResponse, OutOfScopeResponse
@@ -655,7 +697,7 @@ plc-copilot/
 │       │   └── ingestion/
 │       │       ├── __init__.py
 │       │       ├── main.py                 # CLI entry point (invoked via SSM)
-│       │       ├── scanner.py              # pre-build corpus scan (FR-5)
+│       │       ├── scanner.py              # pre-build corpus scan (FR-004)
 │       │       ├── classifier.py           # page classification (portrait/landscape)
 │       │       ├── parser.py               # hierarchical text parsing
 │       │       ├── extractor.py            # visual content extraction (landscape pages)
@@ -689,8 +731,7 @@ plc-copilot/
 │       ├── conftest.py
 │       └── test_metrics.py
 │
-├── apps/
-│   └── client/                             # minimal internal test client (PRD Section 2.2)
+│   └── client/                             # minimal internal test client (PRD Section 2.2, FR-021)
 │       ├── index.html                      # single input field + disclaimer banner
 │       └── README.md                       # "internal testing only" notice
 │
@@ -734,14 +775,71 @@ api/exception_handlers → shared/exceptions (error catching → HTTP response)
 - `api/` layer: HTTP concerns, auth, exception-to-response mapping
 - `pipeline/` layer: business logic, external service calls, orchestration
 - `models/` layer: data shapes (Pydantic schemas)
-- `core/` layer: startup, DI wiring, config
+- `core/` layer: startup, DI wiring (config and logging imported from `libs/shared/`)
 
 **Data Boundaries:**
 - PostgreSQL: chunk metadata, book catalog, session audit (via SQLAlchemy async)
 - Qdrant: vector embeddings only (accessed via Qdrant async client)
-- Redis: clarification session state (15-min TTL)
+- Redis: clarification session state (see schema below)
 - S3: PDF source files (read-only from ingestion, SKU-prefixed)
 - OpenAI: generation + classification + embeddings (stateless, zero-retention)
+
+**Redis Session Schema:**
+
+Key format: `session:{session_id}` (UUID v4, server-generated)
+TTL: 15 minutes (architecture decision — PRD does not prescribe a TTL; 15 min chosen
+to balance user think time against stale-session accumulation)
+
+```python
+# Stored as Redis hash
+{
+    "original_query": str,       # the user's ambiguous query text
+    "conversation_id": str,      # echoed from request
+    "user_id": str,              # echoed from request
+    "classification": str,       # classifier output (intent + extracted filters as JSON)
+    "clarification_question": str,  # the question sent back to the user
+    "created_at": str,           # ISO 8601 timestamp
+}
+```
+
+On follow-up: the orchestrator loads this session, appends the follow-up query to the
+original query context, and re-runs stages 3–5 (filter extraction, retrieval, generation).
+The session is deleted after the follow-up is resolved.
+
+**Pydantic Response Model Details (PRD Section 5.3):**
+
+```python
+# models/schemas.py
+class SuccessResponse(BaseModel):
+    status: Literal["success"]
+    conversation_id: str               # echoed from request (str, NOT UUID — PRD Section 5.2)
+    answer: str
+    sources: list[SourceCitation]
+    session_id: Optional[str] = None   # present only when resolving a clarification follow-up
+
+class ClarificationResponse(BaseModel):
+    status: Literal["needs_clarification"]
+    conversation_id: str
+    session_id: str                    # server-generated UUID
+    clarification_question: str
+
+class OutOfScopeResponse(BaseModel):
+    status: Literal["out_of_scope"]
+    conversation_id: str               # MUST be echoed even on out-of-scope (PRD Section 5.3)
+    message: str                       # fixed refusal text
+
+class SourceCitation(BaseModel):
+    book_title: str
+    sku: str
+    page_number: int
+    text_excerpt: str                  # first 200 characters of source chunk (PRD Section 5.3)
+
+class QueryRequest(BaseModel):
+    query: str
+    user_id: str
+    conversation_id: str               # str, NOT UUID — server does not validate (PRD Section 5.2)
+    session_id: Optional[str] = None   # only on clarification follow-up
+```
 
 ### Integration Points
 
@@ -828,28 +926,33 @@ Every decision has a home in the structure. Boundaries are clean.
 
 | FR | Requirement | Architectural Home | Status |
 |---|---|---|---|
-| FR-1 | Page classification | `apps/ingestion/classifier.py` | Covered |
-| FR-2 | Hierarchical parsing | `apps/ingestion/parser.py` | Covered |
-| FR-3 | Landscape extraction | `apps/ingestion/extractor.py` | Covered |
-| FR-4 | Metadata schema on every chunk | `apps/ingestion/chunker.py` + `libs/shared/models/db.py` | Covered |
-| FR-5 | Pre-build corpus scan | `apps/ingestion/scanner.py` | Covered |
-| FR-6 | Direct answer (success) | `pipeline/orchestrator.py` → `pipeline/generator.py` | Covered |
-| FR-7 | Ambiguity → needs_clarification | `pipeline/classifier.py` + `pipeline/session.py` | Covered |
-| FR-8 | One-question hard limit | `pipeline/session.py` (Redis TTL + state) | Covered |
-| FR-9 | Out-of-scope hard refusal | `pipeline/classifier.py` (pre-retrieval) | Covered |
-| FR-10 | Metadata filter extraction | `pipeline/classifier.py` (same GPT-4o-mini pass) | Covered |
-| FR-11 | Fallback when < 3 results | `pipeline/retriever.py` | Covered |
-| FR-12 | Semantic search top-N | `pipeline/retriever.py` (Qdrant) | Covered |
-| FR-13 | Keyword search top-N | `pipeline/retriever.py` (BM25) | Covered |
-| FR-14 | Merge + re-rank top-K | `pipeline/retriever.py` + `pipeline/reranker.py` | Covered |
+| FR-001 | Source material processing | `apps/ingestion/main.py` → full pipeline | Covered |
+| FR-002 | Layout-aware parsing | `apps/ingestion/classifier.py` + `apps/ingestion/parser.py` + `apps/ingestion/extractor.py` | Covered |
+| FR-003 | Metadata capture | `apps/ingestion/chunker.py` + `libs/shared/models/db.py` | Covered |
+| FR-004 | Pre-build corpus scan | `apps/ingestion/scanner.py` | Covered |
+| FR-005 | Direct answer (success) | `pipeline/orchestrator.py` → `pipeline/generator.py` | Covered |
+| FR-006 | Conditional clarification | `pipeline/classifier.py` + `pipeline/session.py` | Covered |
+| FR-007 | Ambiguity detection (two-part test) | `pipeline/classifier.py` + labeled ambiguous test set | Covered |
+| FR-008 | One-question hard limit | `pipeline/session.py` (Redis TTL + state) | Covered |
+| FR-009 | Out-of-scope detection | `pipeline/classifier.py` (pre-retrieval) | Covered |
+| FR-010 | Dynamic metadata filtering | `pipeline/classifier.py` (same GPT-4o-mini pass) + `pipeline/retriever.py` (fallback) | Covered |
+| FR-011 | Semantic search | `pipeline/retriever.py` (Qdrant) | Covered |
+| FR-012 | Keyword search | `pipeline/retriever.py` (BM25) | Covered |
+| FR-013 | Re-ranking | `pipeline/retriever.py` + `pipeline/reranker.py` | Covered |
+| FR-014 | Reference-free evaluation | `eval/run_ragas.py` (Phase 0-B mode) | Covered |
+| FR-015 | Reference-based evaluation | `eval/run_ragas.py` (Phase 3 Track A mode) | Covered |
+| FR-016 | Baseline comparison | `eval/run_baseline.py` | Covered |
+| FR-017 | Style preference data collection | `eval/run_style_comparison.py` | Covered |
+| FR-018 | API key authentication | `api/security/auth.py` (FastAPI `Depends` + `Security`) | Covered |
+| FR-019 | Audit logging | `libs/shared/logging.py` (structlog) + all pipeline stages | Covered |
+| FR-020 | Health check endpoint | `api/routes/health.py` (`GET /health`) | Covered |
+| FR-021 | Minimal test client | `apps/client/index.html` | Covered |
 
-**All 14 FRs: Covered.**
+**All 21 FRs: Covered.**
 
 ### Requirements Coverage — NFR Traceability
 
 | NFR | Requirement | Architectural Support | Status |
-|---|---|---|---|
-| PRD NFR | Requirement | Architectural Support | Status |
 |---|---|---|---|
 | NFR-001 | p95 ≤ 30s at 1–3 concurrent users | Async throughout + per-stage timing logs in `orchestrator.py` | Covered |
 | NFR-002 | 95% uptime during business hours | Fargate + ALB health check | Covered |
@@ -858,15 +961,17 @@ Every decision has a home in the structure. Boundaries are clean.
 | NFR-005 | 90-day audit log retention; no PII in logs | CloudWatch log group config; structlog bound loggers | Covered |
 | NFR-006 | RTO 4h / RPO 24h | RDS automated backups (7-day retention) | Covered |
 | NFR-007 | Container vulnerability scanning; critical/high CVEs block deploy | ECR image scanning or Trivy step in GitHub Actions CI pipeline | Covered |
+| NFR-008 | Ingestion pipeline ≤ 8h wall-clock; per-book failure isolation | `apps/ingestion/main.py` per-book error handling + timed logging | Covered |
+| NFR-009 | Cold start ≤ 120s readiness (including model loading) | ECS health check config (interval 30s, unhealthy 3 = ~90s) + `core/startup.py` re-ranker load | Covered |
 | Section 2.3 | RAGAS thresholds (Faithfulness ≥ 0.80, AR ≥ 0.75, CP/CR ≥ 0.70) | `eval/` pipeline | Covered |
 | Section 2.3 | 100% out-of-scope refusal rate | Pre-retrieval classifier + golden dataset tests | Covered |
 | Section 2.3 | Ambiguity detection precision ≥ 0.80, recall ≥ 0.70 | `pipeline/classifier.py` + labeled ambiguous test set in `tests/golden_dataset.json` | Covered |
 | Section 2.3 | Max 1 clarification per session | Redis session state in `pipeline/session.py` | Covered |
-| Section 2.3 | Golden dataset: ≥35 in-scope, ≥10 out-of-scope, ≥5 ambiguous | `tests/golden_dataset.json` | Covered |
+| Section 2.3 | Golden dataset: ≥30 in-scope, ≥10 out-of-scope, ≥10 ambiguous | `tests/golden_dataset.json` | Covered |
 | Section 7.2 | Zero OpenAI retention | DPA + API config | Covered |
-| Section 8 (prev NFR-19) | Manual re-ingestion trigger | GitHub Actions → SSM Run Command | Covered |
+| Section 8 | Manual re-ingestion trigger | GitHub Actions → SSM Run Command | Covered |
 
-**All PRD NFRs and quality targets: Covered.**
+**All 9 PRD NFRs and quality targets: Covered.**
 
 ### Gap Analysis — Resolved
 
@@ -877,12 +982,22 @@ Every decision has a home in the structure. Boundaries are clean.
 | Workspace members update | Root `pyproject.toml` members: `["apps/api", "apps/ingestion", "eval", "libs/shared"]` |
 | `chunk_hash` column | Architecture addition to PRD schema for ingestion idempotency — add `chunk_hash` (string) column to `chunks` table. Unique constraint on `(book_id, page_number, chunk_hash)`. |
 | Qdrant collection name | Constant `QDRANT_COLLECTION = "plc_copilot_v1"` in `libs/shared/config.py` as a `Settings` field. |
-| Terraform and CI/CD (PRD v4.2 AC #1, #2) | Now in scope. `terraform/` directory at repo root covers all Zone A resources + commented-out Zones B/C. GitHub Actions `.github/workflows/ci.yml` runs lint → test → build → ECR push → Fargate deploy on push to `main`; `ingest.yml` triggers SSM Run Command. |
-| RPO correction | PRD v4.2 NFR-006 relaxes RPO from 1h to 24h. Architecture NFR table updated accordingly. RDS 7-day automated backup retention remains the implementation. |
-| Container vulnerability scanning (PRD v4.2 NFR-007) | ECR image scanning or Trivy step in GitHub Actions CI pipeline; critical/high CVEs block push to ECR. Assigned architectural home: `.github/workflows/ci.yml`. |
-| Ambiguity detection metrics (PRD v4.2 FR-007, Section 2.3) | `pipeline/classifier.py` implements ambiguity classification; labeled ambiguous subset in `tests/golden_dataset.json` (≥5 questions); precision/recall measured in CI test suite. |
-| Minimal test client (PRD v4.2 Section 2.2) | `apps/client/index.html` — single input field + disclaimer banner; no auth, no styling. Not a workspace member; served statically. |
-| Eval pipeline gaps (PRD v4.2 AC #14, #15) | `eval/run_baseline.py` — submits golden dataset to raw GPT-4o without RAG context and compares RAGAS scores. `eval/run_style_comparison.py` — generates Book-Faithful and Coaching-Oriented responses per query and emits structured preference log. |
+| Terraform and CI/CD (PRD v4.6 AC #1, #2) | Now in scope. `terraform/` directory at repo root covers all Zone A resources + commented-out Zones B/C. GitHub Actions `.github/workflows/ci.yml` runs lint → test → build → ECR push → Fargate deploy on push to `main`; `ingest.yml` triggers SSM Run Command. |
+| RPO correction | PRD v4.6 NFR-006 relaxes RPO from 1h to 24h. Architecture NFR table updated accordingly. RDS 7-day automated backup retention remains the implementation. |
+| Container vulnerability scanning (PRD v4.6 NFR-007) | ECR image scanning or Trivy step in GitHub Actions CI pipeline; critical/high CVEs block push to ECR. Assigned architectural home: `.github/workflows/ci.yml`. |
+| Ambiguity detection metrics (PRD v4.6 FR-007, Section 2.3) | `pipeline/classifier.py` implements ambiguity classification; labeled ambiguous subset in `tests/golden_dataset.json` (≥10 questions per PRD v4.6); precision/recall measured in CI test suite. |
+| Minimal test client (PRD v4.6 Section 2.2) | `apps/client/index.html` — single input field + disclaimer banner; no auth, no styling. Not a workspace member; served statically. |
+| Eval pipeline gaps (PRD v4.6 FR-014–017, AC #14, #15) | `eval/run_ragas.py` — reference-free (FR-014) and reference-based (FR-015) evaluation. `eval/run_baseline.py` — submits golden dataset to raw GPT-4o without RAG context and compares RAGAS scores (FR-016). `eval/run_style_comparison.py` — generates Book-Faithful and Coaching-Oriented responses per query and emits structured preference log (FR-017). |
+| Cross-cutting capabilities (PRD v4.6 FR-018–021) | FR-018 API key auth → `api/security/auth.py`. FR-019 audit logging → `libs/shared/logging.py` + structlog bound loggers. FR-020 health check → `api/routes/health.py`. FR-021 minimal test client → `apps/client/index.html`. |
+| NFR-008 ingestion duration (PRD v4.6) | `apps/ingestion/main.py` — per-book error handling with continue-on-failure; timed logging per book; 8h ceiling verified via end-to-end timed run. |
+| NFR-009 cold start tolerance (PRD v4.6) | ECS health check config (interval 30s, timeout 10s, healthy 2, unhealthy 3) allows ~90s for re-ranker load in `core/startup.py`; 120s readiness ceiling verified via health-check probe after fresh deployment. |
+| `chunk_hash` derivation (architecture addition) | SHA-256 of `text_content` bytes. Column type: `VARCHAR(64)`. Added to `chunks` table in `libs/shared/models/db.py`; unique constraint on `(book_id, page_number, chunk_hash)` enforces ingestion idempotency at DB level. Not in PRD data model — this is an architecture decision that extends the PRD schema. |
+| Ingestion migration ordering | The ingestion container (SSM-triggered) must not run before Alembic migrations have been applied. Since migrations run at API container startup, the ingestion workflow documentation in `.github/workflows/ingest.yml` must note: "Ensure the API service has started at least once after any schema change before triggering ingestion." |
+| LlamaIndex role clarification | LlamaIndex is a component library, not the orchestration layer. Used for `BM25Retriever` (PRD Decision #5) and optionally for document/node abstractions during ingestion. Custom `orchestrator.py` handles pipeline stage ordering. Do not use `QueryEngine`, `RetrieverQueryEngine`, or `RouterQueryEngine`. |
+| Health check FR-020 alignment | `GET /health` now checks Qdrant connectivity, PostgreSQL connectivity, AND re-ranker model readiness per PRD FR-020. Returns non-200 if any dependency unreachable. |
+| Out-of-scope as result, not exception | `OutOfScopeError` removed from exception hierarchy. Out-of-scope and needs_clarification are valid pipeline results returning `200 OK`, not error exceptions. Only true failures (`ClassificationError`, `RetrievalError`, `GenerationError`) use the exception-to-HTTP-error pattern. |
+| Redis session TTL | 15-minute TTL is an architecture decision (PRD does not prescribe). Session stores original query, conversation_id, user_id, classification output, and clarification question. Deleted after follow-up resolution. |
+| Response model precision | All three response models include `conversation_id: str` (not UUID). `SuccessResponse` has `session_id: Optional[str] = None` (present only after clarification). `SourceCitation.text_excerpt` is first 200 characters of chunk text per PRD Section 5.3. |
 
 ### Architecture Completeness Checklist
 
@@ -910,8 +1025,8 @@ Every decision has a home in the structure. Boundaries are clean.
 - [x] Component boundaries established
 - [x] Integration points mapped
 - [x] Requirements to structure mapping complete
-- [x] All 13 FRs traceable to specific files
-- [x] All PRD NFRs and quality targets architecturally supported
+- [x] All 21 FRs traceable to specific files
+- [x] All 9 PRD NFRs and quality targets architecturally supported
 - [x] Terraform and CI/CD in scope and mapped to structure
 - [x] Eval pipeline extended for baseline comparison and style preference collection
 
@@ -919,8 +1034,8 @@ Every decision has a home in the structure. Boundaries are clean.
 
 **Overall Status:** READY FOR IMPLEMENTATION
 
-**Confidence Level:** High — all FRs covered, all NFRs addressed, no critical gaps
-remaining.
+**Confidence Level:** High — all 21 FRs covered, all 9 NFRs addressed, no critical gaps
+remaining. Aligned with PRD v4.6.
 
 **Key Strengths:**
 - Clean separation between API and ingestion packages with `libs/shared/` preventing
