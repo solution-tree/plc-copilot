@@ -1,6 +1,6 @@
 ---
 stepsCompleted: [1, 2, 3, 4, 5, 6]
-adversarialReviewsApplied: [round-1, round-2]
+adversarialReviewsApplied: [round-1, round-2, round-3]
 inputDocuments:
   - apps/api/docs/prd-v4.md
   - apps/api/docs/prd-v4-validation-report.md
@@ -62,8 +62,8 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 ### Cross-Cutting Concerns Identified
 
 - **FERPA compliance:** Shapes every data handling decision — self-hosted Qdrant, VPC-only ingestion, DPA requirements, no-PII audit logs, three-zone enclave model
-- **Encryption:** Universal requirement — KMS at rest, TLS 1.2+ in transit, all data stores, all network communication
-- **Audit logging:** Structured JSON logs for all key events, must never capture PII, 90-day retention
+- **Encryption:** Universal requirement — KMS at rest, TLS 1.2+ in transit, all data stores, all network communication. **ElastiCache-specific:** `at_rest_encryption_enabled = true` and `transit_encryption_enabled = true` are mandatory Terraform parameters (not enabled by default). Enabling transit encryption requires the application Redis client to use `rediss://` (TLS) instead of `redis://` — this coupling between infrastructure and app config must be explicit in `.env.example`.
+- **Audit logging:** Structured JSON logs for all key events, must never capture PII. **Retention:** 1 year minimum (90 days in CloudWatch, remainder archived to S3 Glacier). Rationale: FERPA complaint filing window and state law investigation timelines (e.g., SOPIPA, NY Ed Law 2-d) can extend well beyond 90 days — 90-day retention risks destroying evidence before investigations begin. **Log group separation:** Audit logs and application logs use separate CloudWatch log groups so retention policies and query access can be managed independently.
 - **Secrets management:** All credentials and API keys in AWS Secrets Manager, IAM least-privilege for all service-to-service access
 - **VPC networking:** Private subnets for all data stores and compute, public subnet for ALB only, NAT gateway for controlled egress
 - **Observability:** CloudWatch log groups for Fargate service (basic for MVP); dashboards and distributed tracing deferred
@@ -150,7 +150,7 @@ uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
 |---|---|---|---|---|
 | ORM & Database Access | **SQLAlchemy 2.0 + Alembic** | SQLAlchemy 2.0.47, Alembic 1.18.4 | Industry standard, massive ecosystem, strong async support, AI agents produce reliable code with it. Alembic provides version-controlled schema migrations. | SQLModel (less mature ecosystem), asyncpg + raw SQL (no migration tooling) |
 | Qdrant Collection Strategy | **Single collection, rich metadata** | — | Re-ranker handles quality sorting after retrieval; metadata filters (book, chapter, page type) provide precise targeting without multi-collection complexity. Retrieval abstraction layer is collection-aware from day one — adding collections for transcripts/workflows post-MVP is a config change, not a rewrite. | Multiple collections by content type (unnecessary complexity for single content type at MVP) |
-| Caching Strategy | **Redis: session + response cache** | — | Session storage required by PRD for clarification flow. Response caching (24h TTL) saves OpenAI costs on identical queries — common during QA and demos. **Cache scope rule:** Only cache responses with `status: "success"`. Never cache `needs_clarification` responses (contain server-generated `session_id` bound to a specific session — caching would serve stale session references that always fail on follow-up). Never cache `out_of_scope` responses (lightweight, no LLM generation cost, no caching benefit). | Session-only (misses easy cost savings), semantic cache (overkill for MVP) |
+| Caching Strategy | **Redis: session + response cache** | — | Session storage required by PRD for clarification flow. Response caching (24h TTL) saves OpenAI costs on identical queries — common during QA and demos. **Cache scope rule:** Only cache responses with `status: "success"`. Never cache `needs_clarification` responses (contain server-generated `session_id` bound to a specific session — caching would serve stale session references that always fail on follow-up). Never cache `out_of_scope` responses (lightweight, no LLM generation cost, no caching benefit). **Cache key:** `cache:{sha256(normalized_query_text)}` — hash the lowercased, whitespace-normalized query text. Never use raw query text as a Redis key (query text may contain student names, which would be visible in Redis CLI, monitoring tools, and slow-query logs). Cache is globally scoped for MVP (all testers have equivalent access). **Post-MVP action:** When per-team RBAC is implemented, the cache key must include a team identifier (`cache:{team_id}:{sha256(query)}`) to prevent cross-team data leakage. | Session-only (misses easy cost savings), semantic cache (overkill for MVP) |
 | Migration Strategy | **Auto-generate + review gate** | — | Alembic auto-generates migration scripts from model changes; review step catches edge cases before applying. Scales to CI pipeline check post-MVP. | Hand-written (slower, error-prone), auto-generate without review (risky) |
 
 ### Authentication & Security
@@ -158,6 +158,7 @@ uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
 | Decision | Selection | Rationale | Alternatives Considered |
 |---|---|---|---|
 | API Authentication | **API key in request header** | MVP is internal testing with 1-3 users. API key provides authorization with near-zero implementation effort. Key stored in AWS Secrets Manager, passed via environment variable to Fargate. Auth logic sits behind an abstraction — swap to JWT/Cognito post-MVP without rewriting route handlers. | AWS IAM auth via ALB (overkill for MVP), JWT tokens (needs token issuer infrastructure) |
+| Qdrant Authentication | **Qdrant API key enabled** | Defense-in-depth: VPC network isolation alone is insufficient — any compromised process within the VPC would have unrestricted access to the vector store. Qdrant's built-in API key authentication adds a second layer. Key stored in AWS Secrets Manager, injected as environment variable to both Fargate service and ingestion pipeline. Qdrant EC2 security group inbound rules restrict port 6333 to only the Fargate service security group and the ingestion pipeline security group — not the entire VPC CIDR. | Relying on network isolation only (single layer of defense, fails if any VPC process is compromised) |
 
 ### API & Communication Patterns
 
@@ -172,10 +173,36 @@ uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
 | Decision | Selection | Rationale | Alternatives Considered |
 |---|---|---|---|
 | Infrastructure as Code | **Terraform** | Industry standard, largest IaC training data for AI agents, cloud-agnostic, explicit resource definitions. State stored in S3 with DynamoDB lock table. | AWS CDK Python (surprising abstractions, AWS-locked), CloudFormation (verbose YAML, slow), manual setup (not repeatable) |
-| CI/CD Pipeline | **GitHub Actions** | Already used for ingestion pipeline triggers (per PRD). Single automation platform. Pipeline: PR → ruff + mypy + pytest; merge to main → build Docker → **Trivy scan (block on critical/high CVEs per NFR-007)** → push ECR → deploy Fargate. | AWS CodePipeline (clunkier, less community), GitLab CI/CircleCI (extra vendor) |
+| CI/CD Pipeline | **GitHub Actions** | Already used for ingestion pipeline triggers (per PRD). Single automation platform. **PR pipeline:** ruff → mypy → `pytest tests/unit/` (unit tests only — no external dependencies). **Merge to main:** build Docker → Trivy scan (block on critical/high CVEs per NFR-007) → push ECR → deploy to **staging** → automated smoke test (health check + single query) → manual promotion to production via separate workflow. Integration tests (`tests/integration/`) run against staging after deploy, not in the PR pipeline (they require real PostgreSQL, Redis, and Qdrant). | AWS CodePipeline (clunkier, less community), GitLab CI/CircleCI (extra vendor) |
 | Container Scanning (NFR-007) | **Trivy** | Open source, widely adopted, runs natively in GitHub Actions, scans Docker images for OS and language-level CVEs. Runs `trivy image --severity CRITICAL,HIGH --exit-code 1` after Docker build — non-zero exit code fails the pipeline and blocks ECR push. | ECR native scanning (asynchronous, requires polling — adds pipeline complexity), Grype/Anchore (viable but smaller community and fewer GitHub Actions examples) |
 | Environment Strategy | **Two environments: staging + production** | Staging mirrors production for pre-release validation. Local Docker covers development. Terraform makes both environments identical configs with different variables. Third environment deferred until team grows. | Single environment (too risky), three environments (triple cost, overkill for MVP) |
-| Observability | **CloudWatch log groups (Fargate service) + ALB health check** | CloudWatch log groups are built into Fargate — zero setup. ALB health check at `/health` provides availability signaling. Structured JSON audit logs (PRD Section 7.2) are emitted to the same CloudWatch log stream. Dashboards, metric alarms, and distributed tracing are explicitly deferred per PRD Section 6.2. | Full observability stack with dashboards and alerts (deferred to post-MVP per PRD) |
+| Observability | **CloudWatch log groups (Fargate service) + ALB health check** | Two separate CloudWatch log groups: one for audit logs (`/plc-copilot/audit`, 90-day retention with S3 Glacier archival to 1 year) and one for application logs (`/plc-copilot/app`, 30-day retention). ALB health check at `/health` provides availability signaling. Retention periods configured explicitly in Terraform — do not rely on CloudWatch defaults ("never expire"). Dashboards, metric alarms, and distributed tracing are explicitly deferred per PRD Section 6.2. | Full observability stack with dashboards and alerts (deferred to post-MVP per PRD) |
+
+### Deployment Strategy
+
+**ECS Service Configuration:**
+- **Deployment type:** Rolling update with circuit breaker enabled (`deployment_circuit_breaker { enable = true, rollback = true }`). If the new task definition fails health checks, ECS automatically rolls back to the last working task definition.
+- **Minimum healthy percent:** 100% — the old container stays running until the new one passes health checks.
+- **Maximum percent:** 200% — allows one new container to start alongside the existing one during deployment.
+- **Manual rollback procedure:** If automatic rollback fails, run `aws ecs update-service --cluster <cluster> --service <service> --task-definition <previous-revision> --force-new-deployment` to pin to a known-good task definition revision.
+
+**Deployment Flow:**
+1. Merge to main → GitHub Actions builds Docker image → Trivy scan → push to ECR
+2. GitHub Actions updates ECS service to deploy to **staging** with new task definition
+3. Staging validation: automated smoke test (health check + single query) runs in the pipeline
+4. **Production promotion:** Manual trigger of a separate GitHub Actions workflow that updates the production ECS service to the same image tag. No automatic production deploys on merge.
+
+### Resource Sizing
+
+| Component | Specification | Rationale |
+|---|---|---|
+| **Fargate task** | 1 vCPU / 2 GB memory (minimum) | Re-ranker model (~90MB weights, ~300MB loaded), BM25 index (10–50MB serialized, larger in memory), connection pools for RDS + Redis + Qdrant, FastAPI async workers. 512MB will OOM. Start at 2GB, monitor CloudWatch memory utilization, scale up if >80% sustained. |
+| **Qdrant EC2** | `t3.medium` (2 vCPU / 4 GB) starting point | Must handle steady-state query serving AND peak ingestion load (concurrent writes). 4GB provides headroom for Qdrant's in-memory HNSW index for ~25 books of chunks. Monitor during first ingestion run — upgrade to `t3.large` or `m6i.large` if memory pressure is observed. |
+| **Qdrant EBS** | 50 GB `gp3` (3000 IOPS baseline), encrypted (`encrypted = true`) | Qdrant stores vectors and payloads on disk. 50GB is generous for 25 books. `gp3` provides consistent IOPS without cost of `io2`. Encryption required by NFR-004. |
+| **RDS** | `db.t3.micro` (2 vCPU / 1 GB), 20 GB `gp3` storage | Metadata store only — book records, chunk metadata, audit logs. Minimal query load for MVP. `t3.micro` is free-tier eligible. Automated backups enabled, 7-day retention. Multi-AZ deferred to post-MVP. |
+| **ElastiCache** | `cache.t3.micro` (1 vCPU / 0.5 GB) | Session storage (small payloads, 15-min TTL) + response cache (24h TTL). Minimal data volume for 1-3 users. Single-node deployment for MVP. |
+
+**Sizing Review Trigger:** If any component exceeds 80% CPU or memory utilization during the first week of staging testing, upgrade before production deployment. These are starting points, not permanent allocations.
 
 ### Decision Impact Analysis
 
@@ -195,7 +222,23 @@ uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
 - Session storage and response caching share the Redis instance — connection pooling configuration must be consistent
 - Response schema follows PRD Section 5.3 (flat structure, status discriminator). Error bodies follow PRD Section 5.4 (flat `{"error": "..."}` format)
 - Terraform must provision all infrastructure before CI/CD can deploy — bootstrap sequence required
-- Health check endpoint must verify all downstream dependencies (RDS, Redis, Qdrant) to give ALB accurate signals
+- Health check endpoint must verify hard dependencies (RDS, Qdrant) and check soft dependencies (Redis) to give ALB accurate signals
+
+**Connection Pool Sizing:**
+
+| Data Store | Pool Setting | Value | Rationale |
+|---|---|---|---|
+| PostgreSQL (SQLAlchemy async) | `pool_size` | 5 | Base connections maintained. 5 concurrent queries (NFR-003) each needing a DB connection. |
+| PostgreSQL (SQLAlchemy async) | `max_overflow` | 5 | Burst connections above `pool_size`. Total max = 10, well within `db.t3.micro` limit (~80 connections). |
+| PostgreSQL (SQLAlchemy async) | `pool_timeout` | 10s | Wait time for a connection from the pool before raising an error. |
+| PostgreSQL (SQLAlchemy async) | `pool_recycle` | 1800s (30 min) | Recycle connections to avoid RDS idle timeout issues. |
+| Redis | `max_connections` | 20 | Shared pool for session + cache services. 5 concurrent queries × 2 Redis operations (cache check + session check) + headroom. ElastiCache `cache.t3.micro` supports ~65k connections. |
+| Redis | `socket_timeout` | 5s | Read/write timeout per Redis operation. |
+| Redis | `socket_connect_timeout` | 2s | Connection establishment timeout. |
+| Qdrant | `timeout` | 10s | Per-request timeout for vector search operations. Qdrant client uses HTTP/gRPC — no persistent pool. |
+| Qdrant | `grpc_port` | 6334 | Use gRPC for lower latency on search operations (REST on 6333 for admin/health). |
+
+All pool settings are configurable via environment variables in `core/config.py`. The values above are starting defaults for MVP sizing.
 
 ## Evaluation Pipeline Architecture
 
@@ -208,6 +251,8 @@ The evaluation pipeline is a **separate offline workload** — not part of the l
 ### Execution Model
 
 The evaluator runs the pipeline locally (or in CI) with access to the staging or production API endpoint. The pipeline submits golden dataset questions to `POST /api/v1/query`, collects responses, and passes them to RAGAS for scoring. No dedicated compute service is needed for MVP.
+
+**Traffic Tagging:** Evaluation requests must include an `X-Request-Source: evaluation` header. The query route propagates this value into audit log entries as a `source` field. This prevents evaluation traffic from being counted as real usage in compliance audits or usage analysis. The `user_id` for evaluation requests should be set to `evaluation-pipeline` to further distinguish them. Cache behavior for evaluation requests: evaluation requests **skip the cache entirely** (both read and write) to ensure evaluation always measures live retrieval + generation quality.
 
 ### Tool Decision
 
@@ -279,18 +324,23 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 
 **Endpoint:** `GET /health`
 
-**Dependency Checks:**
+**Hard Dependency Checks (fail = unhealthy):**
 - PostgreSQL (RDS): execute `SELECT 1`
 - Qdrant: execute collection info call
+
+**Soft Dependency Checks (fail = log warning, remain healthy):**
 - Redis (ElastiCache): execute `PING`
 
-**Readiness Checks:**
+**Readiness Checks (fail = unhealthy):**
 - Re-ranker model loaded in memory
 - BM25 index loaded in memory
 
 **Response Format:**
 - Healthy: `200 OK` with `{"status": "healthy"}`
-- Unhealthy: `503 Service Unavailable` with `{"status": "unhealthy", "failed": ["<dependency_name>"]}`
+- Degraded: `200 OK` with `{"status": "healthy"}` (Redis down — logged internally, not exposed)
+- Unhealthy: `503 Service Unavailable` with `{"status": "unhealthy"}`
+
+**Note:** The public `/health` response never includes dependency names or failure details. Dependency-level status is logged internally via the `health_check` event. If detailed health information is needed for debugging, a separate `GET /health/detailed` endpoint behind API key authentication can be added. This prevents unauthenticated callers from enumerating the technology stack.
 
 **ALB Configuration:**
 - Health check path: `/health`
@@ -298,9 +348,9 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 - Unhealthy threshold: 2 consecutive failures marks target unhealthy
 - Healthy threshold: 2 consecutive successes marks target healthy
 
-**Startup Behavior:** The `/health` endpoint returns `503` until all dependency checks pass AND both the re-ranker model and BM25 index are loaded. FastAPI's lifespan context manager handles the loading sequence. ALB will not route traffic to the container until health passes.
+**Startup Behavior:** The `/health` endpoint returns `503` until all hard dependency checks pass AND both the re-ranker model and BM25 index are loaded. FastAPI's lifespan context manager handles the loading sequence. ALB will not route traffic to the container until health passes.
 
-**Note on Redis:** Included as a health check dependency even though FR-020 doesn't list it explicitly, because session storage and response caching are hard dependencies of the query endpoint. A Redis failure means the clarification flow and caching are broken.
+**Redis Degradation Policy:** Redis is a soft dependency in the health check because the query endpoint can function without it — cache misses proceed to retrieval normally, and expired sessions return `400` per PRD Section 5.4. A Redis outage degrades performance (no caching) and breaks the clarification flow (sessions unavailable), but does not prevent the core query-answer path from working. Killing all traffic via the health check when Redis is down is disproportionate for an infrastructure blip that only affects secondary features.
 
 ## Additional Data Architecture Decisions
 
@@ -323,8 +373,18 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 - **Snapshot Schedule:** Daily automated snapshot via cron on the Qdrant EC2 instance using Qdrant's built-in snapshot API. Additionally, the ingestion pipeline triggers a snapshot immediately after successful completion (see BM25 Index Lifecycle — ingestion completion criteria).
 - **Storage:** S3 private bucket (same bucket as source PDFs).
 - **Retention:** 7 days (matching RDS automated backup retention).
-- **Recovery Procedure:** Restore from latest S3 snapshot. Snapshot restoration takes minutes — well within the 4-hour RTO.
 - **Fallback:** If the snapshot is corrupted or missing, fall back to full re-ingestion (8-hour ceiling — exceeds RTO, escalate as incident).
+
+**Recovery Procedure (Step-by-Step):**
+1. **Re-provision EC2 instance:** Run `terraform apply` — the Qdrant EC2 instance is Terraform-managed, so `apply` recreates the instance with correct security groups, EBS volume, and Qdrant installation.
+2. **Download latest snapshot from S3:** `aws s3 cp s3://<bucket>/qdrant-snapshots/<latest>.snapshot /tmp/qdrant-restore.snapshot`
+3. **Restore snapshot to Qdrant:** `curl -X PUT "http://localhost:6333/collections/<collection_name>/snapshots/upload" -H "Content-Type: multipart/form-data" -F "snapshot=@/tmp/qdrant-restore.snapshot"`
+4. **Verify collection health:** `curl http://localhost:6333/collections/<collection_name>` — confirm `status: "green"` and expected point count.
+5. **Verify API connectivity:** Run `/health` endpoint and confirm Qdrant check passes.
+
+**Backup Monitoring:**
+- **CloudWatch alarm on snapshot age:** A CloudWatch metric alarm monitors the S3 `LastModified` timestamp of the latest snapshot object. If no new snapshot appears within 26 hours (allowing 2-hour buffer for the daily cron), the alarm fires to SNS. This catches silent cron failures — if the EC2 instance is the thing that fails, the cron fails with it, and without external monitoring the 7-day retention window silently empties.
+- **Snapshot cron logging:** The cron job must log success/failure to the Qdrant EC2 instance's CloudWatch agent log stream so failures are visible even if the alarm threshold hasn't been reached.
 
 ### Dynamic Metadata Extraction (FR-010)
 
@@ -347,6 +407,12 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 **Alternative Considered:** LlamaIndex `BM25Retriever` — integrates with LlamaIndex's node/document model but introduces framework coupling. Since the retrieval abstraction layer already decouples implementations, framework integration provides no benefit.
 
 **Serialization Note:** Pickle format requires matching Python versions for build and load. The Dockerfile pins the Python version, so this is handled. The `.pkl` file is uploaded to S3 alongside source PDFs and downloaded at container startup (see BM25 Index Lifecycle section).
+
+**Security Note:** `pickle.load()` on untrusted data is an arbitrary code execution vector. The threat model accepts this risk for MVP because the S3 bucket is private, IAM-credentialed, and the pickle file is written by the team-controlled ingestion pipeline. **Mitigations:**
+1. **S3 IAM restriction:** The S3 bucket policy must restrict `PutObject` on the `bm25-index/` prefix to only the ingestion pipeline's IAM role. The Fargate task role has `GetObject` only on that prefix. This limits who can replace the file.
+2. **S3 bucket versioning:** Enabled on the S3 bucket so that if a file is tampered with, the previous version can be recovered.
+3. **Checksum verification:** The ingestion pipeline writes a SHA-256 hash file alongside the pickle file. The Fargate container verifies the hash before deserializing. This detects tampering but does not prevent it.
+4. **Post-MVP consideration:** If the security posture needs to harden, replace pickle with a safer serialization approach (e.g., save the raw tokenized corpus as JSON and rebuild the `rank_bm25` index at startup — adds ~5-10 seconds to cold start but eliminates the RCE vector entirely).
 
 ### Embedding Model Versioning
 
@@ -378,8 +444,31 @@ At least one of the following must be implemented:
 _These are blocking items that must be verified before production deployment. They are business/legal actions, not code — each needs an owner and a completion date._
 
 - [ ] **OpenAI DPA executed** — Data Processing Agreement with zero-retention clause confirmed and on file. Required by PRD Section 7.2 (third-party data processing).
+- [ ] **OpenAI zero-retention verified in code** — Application must set `store: false` on every OpenAI chat completion and embedding request. At API startup, verify the OpenAI organization settings reflect the zero-retention agreement. Log a `WARNING` if verification fails (do not block startup — the DPA is the legal control, code verification is defense-in-depth).
+- [ ] **OpenAI spending limits configured** — Set usage limits and budget alerts in the OpenAI dashboard to prevent runaway costs from ingestion loops, retry storms, or misconfigured parallelism. Recommended: set a monthly hard cap at 2x expected monthly spend.
+- [ ] **OpenAI API key rotation procedure documented** — Key is read at app startup from Secrets Manager via environment variable. Key rotation requires: (1) generate new key in OpenAI dashboard, (2) update Secrets Manager, (3) force new Fargate deployment to pick up the new env var. Rotation triggers: suspected compromise, team member departure, quarterly schedule.
 - [ ] **Solution Tree content license reviewed** — Confirm internal testing use of PLC @ Work book content is explicitly covered by the existing license agreement (see Known Risk: Content IP and Copyright above).
 - [ ] **NFR-007 vulnerability scan passing** — CI/CD pipeline Trivy scan step is operational and blocking on critical/high CVEs before any production deployment.
+
+## Data Retention & Deletion Architecture
+
+_MVP handles book content only — no student data, no transcripts. Deletion requirements are minimal at MVP but must be architected before the first student-data feature ships._
+
+**MVP Scope (Book Content Only):**
+- No user-generated content exists to delete. Book corpus is static and owned by Solution Tree.
+- Response cache entries expire automatically via 24h TTL. Session entries expire via 15-minute TTL.
+- Audit logs are retained per the retention policy (1 year) and are not subject to deletion requests — they contain no PII.
+
+**Post-MVP Required — Before Transcript/Student Data Features Launch:**
+
+The FERPA research establishes deletion obligations that must be implemented before any student data enters the system:
+1. **S3 lifecycle policies** for automatic deletion of raw recordings (30-day retention during beta, immediate after rollout).
+2. **Cascade deletion strategy:** When a record is deleted from PostgreSQL (e.g., a meeting transcript), corresponding vectors must be removed from Qdrant and cached responses invalidated in Redis. This requires a deletion service that coordinates across all three stores.
+3. **BM25 index rebuild on deletion:** Individual documents cannot be removed from a serialized BM25 index — the entire index must be rebuilt and re-uploaded to S3. Meeting-level deletion therefore triggers a BM25 rebuild as part of the cascade.
+4. **Deletion verification:** State law compliance (e.g., Illinois ISSRA 30-day deletion window) requires proof that deletion occurred. The deletion service must log a `data_deletion_completed` audit event with affected record IDs.
+5. **Data export before deletion:** FERPA research specifies data portability (PDF, JSON, CSV export) must be available before deletion. The deletion API must reject delete requests for records that have not been exported, or provide export as part of the deletion flow.
+
+**Forward Note:** The first post-MVP feature involving student data must include a deletion service as part of its definition of done — not as a follow-up.
 
 ## Implementation Patterns & Consistency Rules
 
@@ -545,7 +634,7 @@ Principle: **Exceptions bubble up, get caught once at the top, and map to PRD er
 |---|---|
 | Library | Python stdlib `logging` module (no third-party logger) |
 | Format | Structured JSON — one JSON object per log line |
-| Required fields per log entry | `timestamp` (ISO 8601 UTC), `level`, `event`, `conversation_id` (when available), `user_id` (when in request context — required per PRD Section 7.2) |
+| Required fields per log entry | `timestamp` (ISO 8601 UTC), `level`, `event`, `conversation_id` (when available), `user_id` (when in request context — required per PRD Section 7.2), `source_ip` (when in request context — client IP from `X-Forwarded-For` header via ALB, required for breach forensics) |
 | Forbidden fields | Any PII — no query text in production logs, no student names, no student-identifiable content (FERPA). Note: `user_id` is a required audit log field per PRD Section 7.2 — it is an opaque client-supplied string, not validated PII. |
 | Log levels | `ERROR`: failures requiring attention. `WARNING`: degraded behavior. `INFO`: request lifecycle events. `DEBUG`: internal details, disabled in production |
 | Where logging happens | Service layer and middleware. Not in route handlers. Not in Pydantic models. |
@@ -586,8 +675,8 @@ Principle: **Retry only external API calls with known transient failure modes.**
 
 | Event Name | When Emitted | Level | Key Fields |
 |---|---|---|---|
-| `query_received` | Request hits query endpoint | INFO | `conversation_id`, `user_id`, `has_session_id` |
-| `query_completed` | Response sent to client | INFO | `conversation_id`, `user_id`, `status`, `duration_ms` |
+| `query_received` | Request hits query endpoint | INFO | `conversation_id`, `user_id`, `has_session_id`, `source`, `source_ip` |
+| `query_completed` | Response sent to client | INFO | `conversation_id`, `user_id`, `status`, `duration_ms`, `source` |
 | `clarification_issued` | System returns `needs_clarification` | INFO | `conversation_id`, `session_id` |
 | `session_resumed` | Follow-up with valid `session_id` | INFO | `conversation_id`, `session_id` |
 | `session_expired` | Follow-up with expired/invalid `session_id` | WARNING | `conversation_id`, `session_id` |
@@ -701,6 +790,7 @@ plc-copilot-api/
 ├── alembic.ini                     # Alembic configuration
 ├── Dockerfile                      # API service image (includes re-ranker model weights)
 ├── Dockerfile.ingestion            # Ingestion pipeline image
+├── docker-compose.dev.yml          # Local dev: PostgreSQL + Redis + Qdrant containers
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                  # PR: ruff → mypy → pytest; merge: build → push ECR → deploy
@@ -916,11 +1006,15 @@ GitHub Actions → SSM Run Command → EC2 → Docker container
 ### Development Workflow Integration
 
 **Local Development:**
-- `uv run uvicorn plc_copilot.main:app --reload` for the API
-- `uv run python -m plc_copilot.ingestion` for ingestion pipeline
-- `.env` for local configuration overrides
-- `uv run pytest` for test execution
-- `pre-commit run --all-files` for linting/type checks
+1. `docker compose -f docker-compose.dev.yml up -d` — starts PostgreSQL, Redis, and Qdrant containers for local development
+2. `uv run alembic upgrade head` — apply database migrations to local PostgreSQL
+3. `uv run uvicorn plc_copilot.main:app --reload` — start the API (reads `.env` for local config)
+4. `uv run python -m plc_copilot.ingestion` — run ingestion pipeline locally
+5. `uv run pytest tests/unit/` — run unit tests (no external dependencies)
+6. `uv run pytest tests/integration/` — run integration tests (requires docker-compose services running)
+7. `pre-commit run --all-files` — lint and type check
+
+**BM25 Index in Local Dev:** For local development without running ingestion, provide a test fixture BM25 index in `tests/fixtures/bm25_test_index.pkl`. The app config should support a `BM25_INDEX_SOURCE` env var that accepts `s3` (production) or a local file path (development). This prevents local dev from requiring S3 access.
 
 **Build Process:**
 - `Dockerfile` builds the API image: install dependencies → bake re-ranker model weights → copy source
@@ -930,5 +1024,5 @@ GitHub Actions → SSM Run Command → EC2 → Docker container
 **Deployment:**
 - Terraform provisions all infrastructure from `terraform/` directory
 - `terraform/environments/staging.tfvars` and `production.tfvars` differentiate environments
-- GitHub Actions deploys new API images to Fargate on merge to main
+- Merge to main → GitHub Actions deploys to **staging** → automated smoke test → manual promotion to **production** via separate workflow (see Deployment Strategy section)
 - Ingestion runs are triggered manually or by schedule via `ingestion.yml` workflow
