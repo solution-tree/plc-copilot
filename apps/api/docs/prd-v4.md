@@ -1,16 +1,20 @@
 ---
 title: "PRD: PLC Coach Service (MVP)"
-version: "4.5"
+version: "4.6"
 date: "2026-02-27"
 author: "LasChicas.ai"
 classification:
   domain: edtech
   projectType: api_backend
+inputDocuments:
+  - apps/api/docs/research/ferpa-FINAL.md
 workflowType: prd
 workflow: edit
 stepsCompleted: ['step-e-01-discovery', 'step-e-02-review', 'step-e-03-edit']
 lastEdited: '2026-02-27'
 editHistory:
+  - date: '2026-02-27'
+    changes: 'Validation-driven edit: added 5 missing FRs (FR-017 style preference, FR-018 API auth, FR-019 audit logging, FR-020 health check, FR-021 test client), tightened test criteria on FR-002/005/010/011/013/016, increased ambiguous query minimum from 5 to 10, added Section 3.5 Cross-Cutting Capabilities'
   - date: '2026-02-27'
     changes: 'Stakeholder round table: split FR-014 (mega-requirement) into FR-014 (reference-free evaluation), FR-015 (reference-based evaluation), FR-016 (baseline comparison) for clean epic/story decomposition'
   - date: '2026-02-27'
@@ -25,7 +29,7 @@ editHistory:
 
 **Document Purpose:** This PRD defines **what** the MVP of the PLC Coach Service must do, **why** it matters, and the key architectural decisions that shape the product. It is the source of truth for product decisions. Where implementation details are included (such as technology selections in the Architecture section), they document confirmed decisions essential for understanding the product's constraints. Detailed implementation guidance — including query pipeline execution order, chunking parameters, and infrastructure configuration — is documented in the companion Technical Specification.
 
-**Author:** LasChicas.ai | **Version:** 4.5 | **Date:** February 27, 2026
+**Author:** LasChicas.ai | **Version:** 4.6 | **Date:** February 27, 2026
 
 ---
 
@@ -80,7 +84,7 @@ A phased evaluation approach ensures quality can be measured from the earliest s
 | **Out-of-Scope** | Questions outside the corpus (e.g., state-specific standards, external policy) | Hard refusal: *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* | System refuses without hallucinating; 100% of out-of-scope test questions must return the hard refusal response |
 | **Ambiguous** | Questions that are in-scope but meet both conditions of the ambiguity test defined in FR-007 (e.g., "What does DuFour say about teams?") | Returns needs_clarification with a session_id and a single clarifying question; resolves to a grounded answer after one follow-up | Ambiguity detection precision ≥ 0.80, recall ≥ 0.70 per FR-007; system never asks more than one clarifying question per session |
 
-Out-of-scope questions are intentionally included to stress-test the system's ability to recognize the boundaries of its knowledge and refuse gracefully rather than hallucinate. The golden dataset shall contain a minimum of 50 questions (target: 100): at least 35 in-scope, 10 out-of-scope, and 5 ambiguous.
+Out-of-scope questions are intentionally included to stress-test the system's ability to recognize the boundaries of its knowledge and refuse gracefully rather than hallucinate. The golden dataset shall contain a minimum of 50 questions (target: 100): at least 30 in-scope, 10 out-of-scope, and 10 ambiguous.
 
 **Phase 0-B — During Build (Reference-Free Evaluation):** As the system is built, the RAGAS evaluation pipeline will be run in reference-free mode against the in-scope question set. This measures Faithfulness and Answer Relevancy without requiring a ground truth answer key, giving the team continuous, objective signal throughout development. Out-of-scope questions will be evaluated separately by checking that the system returns the hard refusal response.
 
@@ -131,7 +135,7 @@ The system's answer quality depends directly on ingestion quality. The ingestion
 - **Landscape pages** (reproducibles and worksheets) are processed by a vision-capable model that generates a structured textual description of the visual content.
 - **Pages without text layers** are flagged for manual review.
 
-Test criteria: Portrait pages produce structured chunks with hierarchy preserved; landscape pages produce descriptive text chunks tagged with `chunk_type: reproducible`; flagged pages are logged for review. See Section 6 for the specific tools used in each stage.
+Test criteria: Portrait pages produce structured chunks verified by spot-checking 3 books (selected for structural diversity) — chapter and section boundaries in the parsed output must match the source PDF table of contents. Landscape pages produce descriptive text chunks tagged with `chunk_type: reproducible`; the count of reproducible chunks is verified against the landscape page count from the FR-004 corpus scan report. Pages without text layers are flagged and logged for review. See Section 6 for the specific tools used in each stage.
 
 **FR-003 — Metadata Capture:** The operator can verify that every chunk of ingested text is stored with a standardized metadata schema capturing: book title, authors, SKU, chapter, section, page number, and content type. Test criteria: 100% of chunks have all required metadata fields populated; spot-check sample confirms accuracy against source PDFs. See the Technical Specification for the full schema definition.
 
@@ -141,7 +145,7 @@ Test criteria: Portrait pages produce structured chunks with hierarchy preserved
 
 The query engine handles four distinct query types through a multi-stage process. Every inbound query passes through the following decision stages in order: (1) out-of-scope detection (FR-009), (2) ambiguity detection (FR-007), (3) metadata filter extraction (FR-010), (4) hybrid retrieval and re-ranking (Section 3.3), and (5) answer generation (FR-005). A query that is rejected at any stage does not proceed to subsequent stages.
 
-**FR-005 — Direct Answer:** The API consumer can submit an unambiguous, in-scope query and receive a grounded, cited answer in a single round trip. Test criteria: The response includes a `success` status with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
+**FR-005 — Direct Answer:** The API consumer can submit an unambiguous, in-scope query and receive a grounded, cited answer in a single round trip. (Grounded = factually consistent with retrieved context, as formally measured by RAGAS Faithfulness in FR-014.) Test criteria: The response includes a `success` status with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
 
 **FR-006 — Conditional Clarification:** The API consumer can submit any query and receive appropriate routing: a direct `success` answer for clear queries, or a `needs_clarification` response with a single clarifying question for ambiguous queries per FR-007. Test criteria: Ambiguous queries from the labeled test set return `needs_clarification`; clear queries return `success` directly.
 
@@ -159,17 +163,17 @@ Test criteria: A labeled subset of the golden dataset with queries tagged as "am
 
 **FR-009 — Out-of-Scope Detection:** The API consumer can submit any query and receive a clear boundary signal: a hard refusal for queries outside the PLC @ Work® corpus stating *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* Test criteria: 100% of out-of-scope golden dataset queries receive the refusal response.
 
-**FR-010 — Dynamic Metadata Filtering:** The API consumer can include metadata references in a query (book title, author name, content type such as "reproducible") and receive results filtered to those criteria. Extractable fields: `book_title`, `authors`, `chunk_type`. If a filtered query returns fewer than three results, the search falls back to unfiltered mode. Test criteria: Metadata-filtered test queries (e.g., "What does Learning by Doing say about..." or "Show me a reproducible for...") return results filtered to the correct book or content type.
+**FR-010 — Dynamic Metadata Filtering:** The API consumer can include metadata references in a query (book title, author name, content type such as "reproducible") and receive results filtered to those criteria. Extractable fields: `book_title`, `authors`, `chunk_type`. If a filtered query returns fewer than three results, the search falls back to unfiltered mode. Test criteria: Metadata-filtered test queries (e.g., "What does Learning by Doing say about..." or "Show me a reproducible for...") return results filtered to the correct book or content type. Metadata extraction accuracy is verified by a test set of 10+ queries containing natural-language references to books, authors, and content types; each query's extracted filters are compared against expected filters with a target extraction accuracy >= 0.90. A test query with metadata filters that matches fewer than 3 chunks returns unfiltered results and does not return an empty result set.
 
 ### 3.3. Hybrid Search & Re-Ranking
 
 The retrieval mechanism combines semantic and keyword search to maximize the quality of retrieved context.
 
-**FR-011 — Semantic Search:** The API consumer can retrieve content that is conceptually similar to the query via vector embeddings, even when exact words do not match. This is effective for broad, conceptual questions. Test criteria: An ablation test comparing vector-only retrieval RAGAS scores against the full hybrid pipeline shows a minimum average delta of 0.03 on Faithfulness or Answer Relevancy.
+**FR-011 — Semantic Search:** The API consumer can retrieve content that is conceptually similar to the query via vector embeddings, even when exact words do not match. This is effective for broad, conceptual questions. Test criteria: An ablation test comparing vector-only retrieval RAGAS scores against the full hybrid pipeline shows a positive delta on Faithfulness or Answer Relevancy (minimum 0.03), confirming that semantic search contributes measurably to retrieval quality. This is a contribution-detection test, not a quality gate — the system-level quality thresholds are defined in Section 2.3.
 
 **FR-012 — Keyword Search:** The API consumer can retrieve content by exact keyword match, critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). Test criteria: A jargon/acronym test set with expected retrieval results achieves recall >= 0.80 for exact-term queries.
 
-**FR-013 — Re-Ranking:** The API consumer can receive search results that have been scored and re-ordered by a relevance-based re-ranker after both searches complete, with the top results passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking shows a minimum average improvement of 0.05 on Faithfulness or Answer Relevancy. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
+**FR-013 — Re-Ranking:** The API consumer can receive search results that have been scored and re-ordered by a relevance-based re-ranker after both searches complete, with the top results passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking shows a positive improvement on Faithfulness or Answer Relevancy (minimum 0.05), confirming that re-ranking contributes measurably to result quality. This is a contribution-detection test, not a quality gate — the system-level quality thresholds are defined in Section 2.3. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
 
 ### 3.4. Evaluation Pipeline
 
@@ -179,7 +183,21 @@ The evaluation pipeline validates system quality against the golden dataset and 
 
 **FR-015 — Reference-Based Evaluation:** The evaluator can run the RAGAS evaluation pipeline in full reference-based mode using the *Concise Answers* book as ground truth, producing Context Precision and Context Recall scores in addition to the reference-free metrics from FR-014. This is the final quality validation (Phase 3 Track A). Test criteria: The pipeline produces per-query scores for all four metrics (Faithfulness, Answer Relevancy, Context Precision, Context Recall) for golden dataset in-scope questions that map to *Concise Answers* entries; aggregate scores meet the thresholds defined in Section 2.3.
 
-**FR-016 — Baseline Comparison:** The evaluator can run the same golden dataset in-scope questions through raw GPT-4o without RAG context and receive a comparison report showing RAG pipeline scores alongside baseline scores for Faithfulness and Answer Relevancy. Test criteria: The comparison report includes per-query and aggregate scores for both the RAG pipeline and the baseline; the RAG pipeline exceeds the baseline on both metrics per the methodology defined in Section 2.3.
+**FR-016 — Baseline Comparison:** The evaluator can run the same golden dataset in-scope questions through raw GPT-4o without RAG context and receive a comparison report showing RAG pipeline scores alongside baseline scores for Faithfulness and Answer Relevancy. Test criteria: The comparison report includes per-query and aggregate scores for both the RAG pipeline and the baseline; the RAG pipeline's aggregate Faithfulness and Answer Relevancy scores both exceed the baseline's aggregate scores across the full in-scope golden dataset, per the methodology defined in Section 2.3.
+
+**FR-017 — Style Preference Data Collection:** The evaluator can generate both answer styles (Book-Faithful and Coaching-Oriented) for each golden dataset in-scope query and record tester preferences in a structured log capturing: query text, query category (simple fact / complex synthesis / ambiguous), whether the query maps to a *Concise Answers* FAQ entry, both responses, preferred style, correctness assessment (both correct / A only / B only / neither), and optional tester notes. This is the Phase 3 Track B data collection described in Section 2.3. Test criteria: The preference log contains entries for all golden dataset in-scope queries; each entry contains all required fields per the schema above.
+
+### 3.5. Cross-Cutting Capabilities
+
+These requirements support multiple user journeys and are prerequisites for other FRs and NFRs.
+
+**FR-018 — API Key Authentication:** The API consumer must provide a valid static API key in the `X-API-Key` request header to access the query endpoint. Requests without a valid key receive a `401 Unauthorized` response. Test criteria: Requests with a valid key return expected responses; requests with missing, empty, or invalid keys return `401 Unauthorized`.
+
+**FR-019 — Audit Logging:** The operator can verify that all query and answer events are captured in structured JSON audit logs with metadata (event type, timestamp, conversation_id, user_id). Logs never contain raw PII or student-identifiable content, even in debug mode. Test criteria: Code review of all log emission points confirms no PII fields are logged; spot-check of log samples confirms all required metadata fields are present per Section 7.2.
+
+**FR-020 — Health Check Endpoint:** The operator can verify service readiness via a health check endpoint that confirms the API container, vector database connection, and relational database connection are operational. Test criteria: The endpoint returns `200 OK` when all dependencies are reachable; returns a non-200 status when any dependency is unreachable. This endpoint is required by NFR-002 and NFR-009 for availability and cold-start verification.
+
+**FR-021 — Minimal Test Client:** The internal tester can access a minimal web-based test client consisting of a single question input field and a prominent banner stating: "This is a testing environment only. Responses do not reflect final product output." No other UI elements, styling, or features are in scope. Test criteria: The client submits queries to the API endpoint and displays responses; the disclaimer banner is visible on page load.
 
 
 ## 4. Data Models & Schema
@@ -542,7 +560,7 @@ The MVP will be considered complete when all of the following criteria are met:
 
 13. A query for a reproducible correctly uses the `chunk_type` filter and returns relevant results derived from the vision-processed landscape pages.
 
-14. The RAG pipeline's RAGAS Faithfulness and Answer Relevancy scores on the in-scope golden dataset exceed the baseline scores from raw GPT-4o (without RAG context) on the same questions. Any statistically meaningful improvement validates the core hypothesis (Section 2.3, Baseline Comparison Methodology).
+14. The RAG pipeline's aggregate RAGAS Faithfulness and Answer Relevancy scores on the in-scope golden dataset both exceed the baseline aggregate scores from raw GPT-4o (without RAG context) on the same questions, per the methodology defined in Section 2.3 and the test criteria in FR-016.
 
 15. Style preference data has been collected across the full golden dataset as described in Phase 3 Track B (Section 2.3). Both answer styles (Book-Faithful and Coaching-Oriented) have been generated for each query, and tester preferences are recorded in the structured preference log.
 
