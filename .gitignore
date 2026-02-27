@@ -1,31 +1,49 @@
 # Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.turbo/
 
 # Environment variables
 .env
 .env.local
 .env.*.local
 
-# Build outputs
-dist/
-build/
-.next/
-out/
-
 # Logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Local tooling — not project-specific
-_bmad/
-.claude/
-
-# Editor
+# IDE / Editor
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.sublime-*
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+*.tsbuildinfo
+
+# BMAD framework and generated outputs
+_bmad/
+_bmad-output/
+.claude/
