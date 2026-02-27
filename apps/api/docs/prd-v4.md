@@ -1,7 +1,7 @@
 ---
 title: "PRD: PLC Coach Service (MVP)"
-version: "4.2"
-date: "2026-02-26"
+version: "4.3"
+date: "2026-02-27"
 author: "LasChicas.ai"
 classification:
   domain: edtech
@@ -9,8 +9,10 @@ classification:
 workflowType: prd
 workflow: edit
 stepsCompleted: ['step-e-01-discovery', 'step-e-02-review', 'step-e-03-edit']
-lastEdited: '2026-02-26'
+lastEdited: '2026-02-27'
 editHistory:
+  - date: '2026-02-27'
+    changes: 'Validation-driven edit: rewrote 5 FRs (006-009, 013) to [Actor] can [capability] format, added FR-014 for evaluation pipeline (closing Journey C traceability gap), added measurement methods to 4 NFRs (003, 005, 006, 007)'
   - date: '2026-02-26'
     changes: 'Validation-driven edit: added User Journeys, NFR section, restructured FRs with IDs and test criteria, removed implementation leakage from requirements, added baseline methodology and AC #14'
 ---
@@ -19,7 +21,7 @@ editHistory:
 
 **Document Purpose:** This PRD defines **what** the MVP of the PLC Coach Service must do, **why** it matters, and the key architectural decisions that shape the product. It is the source of truth for product decisions. Where implementation details are included (such as technology selections in the Architecture section), they document confirmed decisions essential for understanding the product's constraints. Detailed implementation guidance — including query pipeline execution order, chunking parameters, and infrastructure configuration — is documented in the companion Technical Specification.
 
-**Author:** LasChicas.ai | **Version:** 4.2 | **Date:** February 26, 2026
+**Author:** LasChicas.ai | **Version:** 4.3 | **Date:** February 27, 2026
 
 ---
 
@@ -137,9 +139,9 @@ The query engine handles four distinct query types through a multi-stage process
 
 **FR-005 — Direct Answer:** The API consumer can submit an unambiguous, in-scope query and receive a grounded, cited answer in a single round trip. Test criteria: The response includes a `success` status with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
 
-**FR-006 — Conditional Clarification:** The API consumer receives a `needs_clarification` response with a clarifying question when a query is ambiguous per FR-007, and receives a direct answer when the query is clear. Test criteria: Ambiguous queries from the labeled test set return `needs_clarification`; clear queries return `success` directly.
+**FR-006 — Conditional Clarification:** The API consumer can submit any query and receive appropriate routing: a direct `success` answer for clear queries, or a `needs_clarification` response with a single clarifying question for ambiguous queries per FR-007. Test criteria: Ambiguous queries from the labeled test set return `needs_clarification`; clear queries return `success` directly.
 
-**FR-007 — Ambiguity Detection:** The API consumer's query is classified as ambiguous if and only if *both* conditions are true: (a) the answer would reference different books, chapters, or concepts depending on interpretation, AND (b) the correct interpretation cannot be determined from the query text alone. A query that is broad but has a single clear answer does not qualify as ambiguous. Ambiguity falls into three categories:
+**FR-007 — Ambiguity Detection:** The API consumer can rely on a two-part ambiguity test applied to every query: a query is classified as ambiguous if and only if *both* conditions are true: (a) the answer would reference different books, chapters, or concepts depending on interpretation, AND (b) the correct interpretation cannot be determined from the query text alone. A query that is broad but has a single clear answer does not qualify as ambiguous. Ambiguity falls into three categories:
 
 | Category | Description | Example |
 |---|---|---|
@@ -149,9 +151,9 @@ The query engine handles four distinct query types through a multi-stage process
 
 Test criteria: A labeled subset of the golden dataset with queries tagged as "ambiguous" or "clear" measures ambiguity detection precision and recall. Target: precision >= 0.80, recall >= 0.70.
 
-**FR-008 — One-Question Hard Limit:** The API consumer receives at most **one** clarifying question per session. If the follow-up remains ambiguous, the response includes the best-interpretation answer with a statement of that interpretation appended (e.g., *"I interpreted your question as being about formative assessment. If you meant something else, please ask again."*). This limit prevents the system from feeling interrogative to busy educators. Test criteria: 100% of multi-turn sessions contain at most one `needs_clarification` response.
+**FR-008 — One-Question Hard Limit:** The API consumer can complete any query interaction with at most **one** clarifying question per session. If the follow-up remains ambiguous, the system provides the best-interpretation answer with a statement of that interpretation appended (e.g., *"I interpreted your question as being about formative assessment. If you meant something else, please ask again."*). This limit prevents the system from feeling interrogative to busy educators. Test criteria: 100% of multi-turn sessions contain at most one `needs_clarification` response.
 
-**FR-009 — Out-of-Scope Detection:** The API consumer receives a hard refusal when submitting a query outside the PLC @ Work® corpus: *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* Test criteria: 100% of out-of-scope golden dataset queries receive the refusal response.
+**FR-009 — Out-of-Scope Detection:** The API consumer can submit any query and receive a clear boundary signal: a hard refusal for queries outside the PLC @ Work® corpus stating *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* Test criteria: 100% of out-of-scope golden dataset queries receive the refusal response.
 
 **FR-010 — Dynamic Metadata Filtering:** The API consumer can include metadata references in a query (book title, author name, content type such as "reproducible") and receive results filtered to those criteria. Extractable fields: `book_title`, `authors`, `chunk_type`. If a filtered query returns fewer than three results, the search falls back to unfiltered mode. Test criteria: Metadata-filtered test queries (e.g., "What does Learning by Doing say about..." or "Show me a reproducible for...") return results filtered to the correct book or content type.
 
@@ -163,7 +165,13 @@ The retrieval mechanism combines semantic and keyword search to maximize the qua
 
 **FR-012 — Keyword Search:** The API consumer can retrieve content by exact keyword match, critical for PLC-specific jargon and acronyms (e.g., RTI, SMART goals, guaranteed and viable curriculum). Test criteria: A jargon/acronym test set with expected retrieval results achieves recall >= 0.80 for exact-term queries.
 
-**FR-013 — Re-Ranking:** The API consumer receives results that have been scored and re-ordered by a relevance-based re-ranker after both searches complete, with the top results passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking shows a minimum average improvement of 0.05 on Faithfulness or Answer Relevancy. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
+**FR-013 — Re-Ranking:** The API consumer can receive search results that have been scored and re-ordered by a relevance-based re-ranker after both searches complete, with the top results passed to the generation model. Test criteria: An ablation test comparing RAGAS scores with and without re-ranking shows a minimum average improvement of 0.05 on Faithfulness or Answer Relevancy. The number of results surviving re-ranking (top-k) is defined in the Technical Specification.
+
+### 3.4. Evaluation Pipeline
+
+The evaluation pipeline validates system quality against the golden dataset and the baseline comparison defined in Section 2.3.
+
+**FR-014 — Evaluation Pipeline Execution:** The evaluator can run the RAGAS evaluation pipeline against the golden dataset and receive a scored report with Faithfulness, Answer Relevancy, Context Precision, and Context Recall metrics per query. In reference-free mode (Phase 0-B), the pipeline produces Faithfulness and Answer Relevancy scores. In full reference-based mode (Phase 3 Track A), the pipeline additionally produces Context Precision and Context Recall scores using the *Concise Answers* book as ground truth. The evaluator can also run the same golden dataset questions through raw GPT-4o without RAG context and compare the resulting scores against the RAG pipeline scores to validate the core hypothesis. Test criteria: The pipeline produces per-query scores for all golden dataset in-scope questions; aggregate scores meet the thresholds defined in Section 2.3; the baseline comparison report shows RAG pipeline scores alongside raw GPT-4o scores for Faithfulness and Answer Relevancy; the evaluator can identify underperforming queries from the output.
 
 
 ## 4. Data Models & Schema
@@ -480,15 +488,15 @@ Baseline targets for the MVP, scoped to an internal testing tool with a small us
 
 **NFR-002 — Availability:** The service maintains 95% uptime during business hours (8 AM – 6 PM ET, weekdays). Downtime for deployments during off-hours is acceptable. Measured via health-check monitoring on the load balancer (see Section 6 for tooling).
 
-**NFR-003 — Concurrent Users:** The system supports at least 5 concurrent query requests without degradation beyond NFR-001 thresholds. This reflects the internal testing team size.
+**NFR-003 — Concurrent Users:** The system supports at least 5 concurrent query requests without degradation beyond NFR-001 thresholds. This reflects the internal testing team size. Verified via a load test script that submits 5 concurrent requests and confirms all responses meet NFR-001 response time thresholds.
 
 **NFR-004 — Data Encryption:** All data is encrypted in transit (TLS 1.2+) and at rest via a managed encryption key service. No exceptions. Verified via infrastructure audit (see Section 6 for tooling).
 
-**NFR-005 — Audit Log Retention:** Structured JSON audit logs are retained in the centralized log store for a minimum of 90 days. Logs never contain raw PII or student-identifiable content, even in debug mode. See Section 6 for tooling.
+**NFR-005 — Audit Log Retention:** Structured JSON audit logs are retained in the centralized log store for a minimum of 90 days. Logs never contain raw PII or student-identifiable content, even in debug mode. Verified via code review of all log emission points confirming no PII fields are logged, and a spot-check of production log samples during acceptance testing. See Section 6 for tooling.
 
-**NFR-006 — Backup & Recovery:** Relational database automated backups are enabled with a 7-day retention period. Vector store data can be reconstructed by re-running the ingestion pipeline from source PDFs in cloud storage. RTO: 4 hours. RPO: 24 hours. See Section 6 for tooling.
+**NFR-006 — Backup & Recovery:** Relational database automated backups are enabled with a 7-day retention period. Vector store data can be reconstructed by re-running the ingestion pipeline from source PDFs in cloud storage. RTO: 4 hours. RPO: 24 hours. Verified via a pre-launch recovery drill: restore the relational database from backup and re-run the ingestion pipeline to reconstruct the vector store, confirming both complete within the RTO window. See Section 6 for tooling.
 
-**NFR-007 — Security Scanning:** Container images are scanned for known vulnerabilities before deployment. Critical and high-severity CVEs must be resolved before production deployment.
+**NFR-007 — Security Scanning:** Container images are scanned for known vulnerabilities before deployment. Critical and high-severity CVEs must be resolved before production deployment. Verified via an automated scan step in the CI/CD pipeline (Section 6.2) that fails the build if critical or high-severity CVEs are detected.
 
 
 ## 9. Acceptance Criteria

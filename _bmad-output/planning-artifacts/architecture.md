@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2]
+stepsCompleted: [1, 2, 3]
 inputDocuments:
   - apps/api/docs/prd-v4.md
   - apps/api/docs/prd-v4-validation-report.md
@@ -62,3 +62,56 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 - **Secrets management:** All credentials and API keys in AWS Secrets Manager, IAM least-privilege for all service-to-service access
 - **VPC networking:** Private subnets for all data stores and compute, public subnet for ALB only, NAT gateway for controlled egress
 - **Observability:** CloudWatch log groups for Fargate service (basic for MVP); dashboards and distributed tracing deferred
+
+## Starter Template Evaluation
+
+### Primary Technology Domain
+
+API backend (Python/FastAPI RAG service on AWS) based on project requirements analysis.
+
+### Technical Tooling Decisions
+
+| Category | Selection | Rationale | Alternatives Considered |
+|---|---|---|---|
+| Package Manager | **uv** | 10-100x faster than alternatives, handles Python version management, PEP 621 compliant `pyproject.toml`, single binary, native workspace support for future monorepo | Poetry (heavier, slower, better for PyPI publishing — not relevant here), PDM (good but smaller community momentum), pip (no lockfile, no dependency resolution) |
+| Testing | **pytest** | Industry standard, native FastAPI `TestClient` integration, rich plugin ecosystem | unittest (more verbose, no fixture system), nose2 (smaller community) |
+| Linting & Formatting | **ruff** | Replaces black + flake8 + isort + autoflake in a single Rust-based tool, current Python standard | black + flake8 + isort (3 separate tools, 3 configs), pylint (heavy, slow) |
+| Type Checking | **mypy** | Standard Python type checker, strong Pydantic/FastAPI integration | pyright (also viable but mypy more established in Python ecosystem) |
+| Pre-commit | **pre-commit** | Enforces ruff + mypy on every commit, prevents quality regressions | Manual enforcement (unreliable) |
+
+### Starter Options Considered
+
+| Starter | Evaluated | Verdict |
+|---|---|---|
+| fastapi-template-uv | Good tooling (uv + ruff + pytest) | Too generic — no RAG, no dual-store pattern |
+| py-fastapi-starter | Clean modular architecture | No RAG patterns, wrong deployment model |
+| fastapi-production-template | Docker + CI/CD included | Targets Render/Koyeb, not AWS Fargate |
+| **Custom scaffold (uv init)** | Full control over structure | **Best fit for domain-specific requirements** |
+
+### Selected Approach: Custom Scaffold via `uv init`
+
+**Rationale:** No existing starter template addresses the project's specific requirements: LlamaIndex RAG orchestration, Qdrant + PostgreSQL dual storage, hybrid BM25/vector search, FERPA-compliant VPC architecture, and a separate ingestion pipeline workload. A custom scaffold avoids rip-and-replace overhead while adopting current best-practice tooling.
+
+**Initialization Commands:**
+
+```bash
+uv init plc-copilot-api
+cd plc-copilot-api
+uv add fastapi pydantic uvicorn
+uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
+```
+
+### Scale-Ready Enhancements (from ADR Review)
+
+**uv Workspace Readiness:** The single-package `uv init` is MVP-appropriate. The `pyproject.toml` structure is natively workspace-compatible — when the project grows to include separate packages (e.g., `plc-copilot-ingestion`, `plc-copilot-eval`, `plc-copilot-shared`), uv workspaces can be enabled without migration. No action needed now; the pattern scales naturally.
+
+**Async Test Infrastructure:** `pytest-asyncio` is included from day one because FastAPI is async. `pytest-cov` is included with a minimum coverage gate configured in CI from the first story. These are not optional for a production async service.
+
+**Test Directory Structure:** The scaffold must establish a test directory structure that mirrors the application and supports the PRD's evaluation requirements:
+- `tests/unit/` — Unit tests for individual components
+- `tests/integration/` — Integration tests for component interactions (Qdrant, RDS, Redis)
+- `tests/evaluation/` — Golden dataset evaluation pipeline, ablation tests (FR-011, FR-013), RAGAS scoring
+
+**Retrieval Layer Abstraction (Forward Flag):** The retrieval mechanism (BM25 + vector + re-ranker) should be structured behind an abstraction that allows the implementation to be swapped without changing the query engine. This is an architectural decision for Step 4, flagged here because the project structure must accommodate it.
+
+**Note:** Project initialization using these commands should be the first implementation story.
