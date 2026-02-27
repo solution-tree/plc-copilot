@@ -44,7 +44,9 @@ The primary goal of the MVP is to validate the core hypothesis: that a well-desi
 
 ### 2.2. Non-Goals (Explicitly Out of Scope for MVP)
 
-**No User Interface (UI):** The MVP is a backend service only, accessed via its API.
+**No Production UI:** The MVP does not include a production-ready user interface.
+
+**Minimal Test Client (In Scope):** A minimal test client will be provided for internal testing only. It consists of a single question input field and a prominent banner stating: "This is a testing environment only. Responses do not reflect final product output." No other UI elements, styling, or features are in scope for this client.
 
 **No User Authentication:** The API will be protected by a static API key for internal testing. Full user authentication and management are deferred to a future release.
 
@@ -70,8 +72,9 @@ A phased evaluation approach ensures quality can be measured from the earliest s
 |---|---|---|---|
 | **In-Scope** | Questions answerable from the 25 PLC @ Work® books | Grounded, cited answer | Faithfulness ≥ 0.80, Answer Relevancy ≥ 0.75, Context Precision ≥ 0.70, Context Recall ≥ 0.70 |
 | **Out-of-Scope** | Questions outside the corpus (e.g., state-specific standards, external policy) | Hard refusal: *"I can only answer questions based on the PLC @ Work® book series. This question falls outside that scope."* | System refuses without hallucinating; 100% of out-of-scope test questions must return the hard refusal response |
+| **Ambiguous** | Questions that are in-scope but meet both conditions of the ambiguity test defined in FR-007 (e.g., "What does DuFour say about teams?") | Returns needs_clarification with a session_id and a single clarifying question; resolves to a grounded answer after one follow-up | Ambiguity detection precision ≥ 0.80, recall ≥ 0.70 per FR-007; system never asks more than one clarifying question per session |
 
-Out-of-scope questions are intentionally included to stress-test the system's ability to recognize the boundaries of its knowledge and refuse gracefully rather than hallucinate.
+Out-of-scope questions are intentionally included to stress-test the system's ability to recognize the boundaries of its knowledge and refuse gracefully rather than hallucinate. The golden dataset shall contain a minimum of 50 questions (target: 100): at least 35 in-scope, 10 out-of-scope, and 5 ambiguous.
 
 **Phase 0-B — During Build (Reference-Free Evaluation):** As the system is built, the RAGAS evaluation pipeline will be run in reference-free mode against the in-scope question set. This measures Faithfulness and Answer Relevancy without requiring a ground truth answer key, giving the team continuous, objective signal throughout development. Out-of-scope questions will be evaluated separately by checking that the system returns the hard refusal response.
 
