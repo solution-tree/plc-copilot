@@ -1,5 +1,6 @@
 ---
 stepsCompleted: [1, 2, 3, 4, 5, 6]
+adversarialReviewsApplied: [round-1, round-2]
 inputDocuments:
   - apps/api/docs/prd-v4.md
   - apps/api/docs/prd-v4-validation-report.md
@@ -23,13 +24,15 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 ### Requirements Overview
 
 **Functional Requirements:**
-13 FRs across 3 subsystems:
+21 FRs across 5 subsystems:
 - **Ingestion Pipeline (FR-001–004):** Batch processing of 25 PLC books from S3 into Qdrant + PostgreSQL. Three-stage parsing: PyMuPDF (classification) → llmsherpa (structure) → GPT-4o Vision (landscape pages). Runs inside VPC via SSM, not part of the live API.
 - **Query Engine (FR-005–010):** Single API endpoint with 3 response modes: direct answer, conditional clarification (1-question hard limit via Redis session), and out-of-scope refusal. Includes ambiguity detection and dynamic metadata filtering.
 - **Hybrid Search & Re-Ranking (FR-011–013):** Dual retrieval (BM25 keyword + vector semantic) with cross-encoder re-ranking before LLM generation. Quality-critical path with ablation test requirements.
+- **Evaluation Pipeline (FR-014–017):** Offline RAGAS evaluation — reference-free scoring, reference-based scoring against Concise Answers, baseline comparison vs. raw GPT-4o, and style preference data collection.
+- **Operations & Security (FR-018–021):** API key authentication, structured audit logging (no PII), health check endpoint, and minimal test client for internal testers.
 
 **Non-Functional Requirements:**
-7 NFRs scoped for internal testing:
+9 NFRs scoped for internal testing:
 - Response time: 30s P95 (1-3 concurrent users)
 - Availability: 95% uptime during business hours
 - Concurrency: 5 simultaneous queries
@@ -37,6 +40,8 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 - Audit logs: 90-day retention, no PII even in debug mode
 - Backup/Recovery: RTO 4h, RPO 24h
 - Security scanning: Critical/high CVEs blocked before deployment
+- Ingestion duration: 8-hour ceiling for full 25-book corpus
+- Cold start tolerance: API container ready within 120 seconds
 
 **Scale & Complexity:**
 
@@ -48,7 +53,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 ### Technical Constraints & Dependencies
 
 - **Technology stack pre-decided:** Python 3.11+/FastAPI, LlamaIndex, Qdrant (self-hosted EC2), PostgreSQL (RDS), Redis (ElastiCache), OpenAI GPT-4o + text-embedding-3-large, cross-encoder/ms-marco-MiniLM-L-6-v2 (in-process)
-- **Single AZ deployment** for MVP simplicity
+- **Single AZ deployment** for MVP simplicity. **Risk accepted:** A single-AZ failure causes 100% service downtime. NFR-002 allows 5% downtime during business hours (~13 hours/month). Historical AWS AZ incidents last 1–4 hours — one incident per month is within budget, but two incidents or one extended outage could breach the target. For internal testing with 1–3 users, brief AZ outages are tolerable and no SLA penalty exists. **Post-MVP action:** Before external users onboard, migrate to multi-AZ Fargate deployment and multi-AZ RDS.
 - **HIPAA-eligible compute required** (Fargate, not App Runner)
 - **External API dependency:** OpenAI (must have executed DPA with zero-retention)
 - **VPC-contained ingestion:** Proprietary content never leaves VPC; ingestion triggered via GitHub Actions but executed via SSM Run Command on EC2
@@ -145,7 +150,7 @@ uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
 |---|---|---|---|---|
 | ORM & Database Access | **SQLAlchemy 2.0 + Alembic** | SQLAlchemy 2.0.47, Alembic 1.18.4 | Industry standard, massive ecosystem, strong async support, AI agents produce reliable code with it. Alembic provides version-controlled schema migrations. | SQLModel (less mature ecosystem), asyncpg + raw SQL (no migration tooling) |
 | Qdrant Collection Strategy | **Single collection, rich metadata** | — | Re-ranker handles quality sorting after retrieval; metadata filters (book, chapter, page type) provide precise targeting without multi-collection complexity. Retrieval abstraction layer is collection-aware from day one — adding collections for transcripts/workflows post-MVP is a config change, not a rewrite. | Multiple collections by content type (unnecessary complexity for single content type at MVP) |
-| Caching Strategy | **Redis: session + response cache** | — | Session storage required by PRD for clarification flow. Response caching (24h TTL) saves OpenAI costs on identical queries — common during QA and demos. | Session-only (misses easy cost savings), semantic cache (overkill for MVP) |
+| Caching Strategy | **Redis: session + response cache** | — | Session storage required by PRD for clarification flow. Response caching (24h TTL) saves OpenAI costs on identical queries — common during QA and demos. **Cache scope rule:** Only cache responses with `status: "success"`. Never cache `needs_clarification` responses (contain server-generated `session_id` bound to a specific session — caching would serve stale session references that always fail on follow-up). Never cache `out_of_scope` responses (lightweight, no LLM generation cost, no caching benefit). | Session-only (misses easy cost savings), semantic cache (overkill for MVP) |
 | Migration Strategy | **Auto-generate + review gate** | — | Alembic auto-generates migration scripts from model changes; review step catches edge cases before applying. Scales to CI pipeline check post-MVP. | Hand-written (slower, error-prone), auto-generate without review (risky) |
 
 ### Authentication & Security
@@ -167,7 +172,8 @@ uv add --dev pytest pytest-asyncio pytest-cov ruff mypy pre-commit
 | Decision | Selection | Rationale | Alternatives Considered |
 |---|---|---|---|
 | Infrastructure as Code | **Terraform** | Industry standard, largest IaC training data for AI agents, cloud-agnostic, explicit resource definitions. State stored in S3 with DynamoDB lock table. | AWS CDK Python (surprising abstractions, AWS-locked), CloudFormation (verbose YAML, slow), manual setup (not repeatable) |
-| CI/CD Pipeline | **GitHub Actions** | Already used for ingestion pipeline triggers (per PRD). Single automation platform. Pipeline: PR → ruff + mypy + pytest; merge to main → build Docker → push ECR → deploy Fargate. | AWS CodePipeline (clunkier, less community), GitLab CI/CircleCI (extra vendor) |
+| CI/CD Pipeline | **GitHub Actions** | Already used for ingestion pipeline triggers (per PRD). Single automation platform. Pipeline: PR → ruff + mypy + pytest; merge to main → build Docker → **Trivy scan (block on critical/high CVEs per NFR-007)** → push ECR → deploy Fargate. | AWS CodePipeline (clunkier, less community), GitLab CI/CircleCI (extra vendor) |
+| Container Scanning (NFR-007) | **Trivy** | Open source, widely adopted, runs natively in GitHub Actions, scans Docker images for OS and language-level CVEs. Runs `trivy image --severity CRITICAL,HIGH --exit-code 1` after Docker build — non-zero exit code fails the pipeline and blocks ECR push. | ECR native scanning (asynchronous, requires polling — adds pipeline complexity), Grype/Anchore (viable but smaller community and fewer GitHub Actions examples) |
 | Environment Strategy | **Two environments: staging + production** | Staging mirrors production for pre-release validation. Local Docker covers development. Terraform makes both environments identical configs with different variables. Third environment deferred until team grows. | Single environment (too risky), three environments (triple cost, overkill for MVP) |
 | Observability | **CloudWatch log groups (Fargate service) + ALB health check** | CloudWatch log groups are built into Fargate — zero setup. ALB health check at `/health` provides availability signaling. Structured JSON audit logs (PRD Section 7.2) are emitted to the same CloudWatch log stream. Dashboards, metric alarms, and distributed tracing are explicitly deferred per PRD Section 6.2. | Full observability stack with dashboards and alerts (deferred to post-MVP per PRD) |
 
@@ -233,7 +239,8 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 - **Serving:** FastAPI `StaticFiles` mount or a dedicated GET route at `/test-client`
 - **Container:** Ships inside the API Docker image — zero additional infrastructure
 - **Disclaimer:** FR-021 disclaimer banner text is hardcoded in the HTML
-- **Scope boundary:** No auth UI, no session management display, no styling beyond functional layout. This is a test tool, not a product feature.
+- **Scope boundary:** No auth *management* UI, no session management display, no styling beyond functional layout. This is a test tool, not a product feature.
+- **API Key Handling:** The test client includes a text input field for the API key. The key is stored in the browser's `sessionStorage` for the duration of the tab and included in the `X-API-Key` header on every request. The key is never persisted to `localStorage` or cookies. Alternatives rejected: (1) Hardcoding the key in HTML — bakes a secret into the Docker image layer; (2) Exempting the test client from auth — creates a bypass that complicates middleware and could be exploited.
 - **OpenAPI:** Not advertised in the auto-generated `/docs`
 
 ## Ingestion Pipeline Analysis
@@ -247,6 +254,8 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 **Parallelism Decision:** If serial processing exceeds 8 hours, the ingestion container can run concurrent asyncio tasks for Vision API calls within the same SSM-triggered EC2 model. No additional infrastructure required — this is a code-level change, not an architecture change.
 
 **Per-Book Failure Isolation:** NFR-008 specifies that individual book failures must not block remaining books. The ingestion pipeline must implement try/except per book with structured failure logging. A summary report at completion lists successful and failed books.
+
+**Resource Contention Risk:** Ingestion runs via SSM Run Command on the same EC2 instance that hosts Qdrant. During an up-to-8-hour ingestion run, the ingestion container consumes CPU, memory, and disk I/O on the machine also serving vector search queries for the live API. **MVP mitigation:** Schedule ingestion runs during off-hours (evenings/weekends) when no testers are using the API — NFR-002 only requires 95% uptime during business hours (8 AM – 6 PM ET, weekdays). **Instance sizing:** The Qdrant EC2 instance must be sized for peak ingestion load, not just steady-state query serving — this is a Terraform variable decision. **Post-MVP action:** If corpus grows or ingestion frequency increases, move ingestion to a separate EC2 instance or Fargate task with network access to Qdrant's private IP.
 
 ### NFR-009: Cold Start (120-Second Readiness)
 
@@ -262,7 +271,7 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 
 **Container Startup:** At API startup, the container downloads the serialized BM25 index from S3 and loads it into memory. For a corpus of this scale, the serialized index is typically 10–50MB. S3 download within the VPC is well within the 120-second cold start budget.
 
-**Index Staleness:** After re-ingestion, the pipeline must rebuild and re-upload the BM25 index. This is part of the ingestion completion criteria — ingestion is not "done" until both Qdrant and the BM25 index are updated.
+**Index Staleness:** After re-ingestion, the pipeline must rebuild and re-upload the BM25 index. This is part of the ingestion completion criteria — ingestion is not "done" until Qdrant is updated, BM25 index is uploaded to S3, AND a Qdrant snapshot is triggered and confirmed (see Qdrant Backup & Recovery section). The post-ingestion snapshot ensures the most recent corpus state is always backed up — without it, a Qdrant failure between ingestion completion and the next daily snapshot would lose the entire ingestion run.
 
 **Alternative Rejected:** Building the BM25 index on every container startup was rejected because it adds unpredictable latency that grows with corpus size, violating the scale-ready principle.
 
@@ -311,11 +320,43 @@ When evaluation grows beyond manual invocation (nightly runs, CI quality gates),
 
 **Solution: Qdrant Native Snapshots**
 
-- **Snapshot Schedule:** Daily automated snapshot via cron on the Qdrant EC2 instance using Qdrant's built-in snapshot API.
+- **Snapshot Schedule:** Daily automated snapshot via cron on the Qdrant EC2 instance using Qdrant's built-in snapshot API. Additionally, the ingestion pipeline triggers a snapshot immediately after successful completion (see BM25 Index Lifecycle — ingestion completion criteria).
 - **Storage:** S3 private bucket (same bucket as source PDFs).
 - **Retention:** 7 days (matching RDS automated backup retention).
 - **Recovery Procedure:** Restore from latest S3 snapshot. Snapshot restoration takes minutes — well within the 4-hour RTO.
 - **Fallback:** If the snapshot is corrupted or missing, fall back to full re-ingestion (8-hour ceiling — exceeds RTO, escalate as incident).
+
+### Dynamic Metadata Extraction (FR-010)
+
+**Approach:** Pre-LLM extraction step using fuzzy string matching against a known vocabulary table. The vocabulary consists of book titles, author names, and content type labels (e.g., "reproducible") stored in PostgreSQL and loaded into memory at API startup. The vocabulary is finite — 25 books, ~50 authors, 2–3 content types — so an LLM call is unnecessary for MVP.
+
+**Module Location:** `services/query_service.py` — extraction happens during query pre-processing, before retrieval is invoked. If complexity grows, extract to a dedicated `services/metadata_extractor.py`.
+
+**Matching Strategy:** Case-insensitive fuzzy matching (e.g., `rapidfuzz` or similar) against the vocabulary. Threshold tuned to meet FR-010's ≥ 0.90 extraction accuracy target on the evaluation dataset.
+
+**Fallback (per PRD):** If fewer than 3 results match the extracted metadata filter, fall back to unfiltered retrieval. The user never sees an empty result set due to overly aggressive filtering.
+
+**Forward Note:** If extraction accuracy falls below 0.90 during evaluation, consider upgrading to an LLM-based extraction step using the existing OpenAI integration. This would add one LLM call per query but handle novel phrasing better than string matching.
+
+### BM25 Library Selection
+
+**Selection:** `rank_bm25` — lightweight pure-Python BM25 implementation. Serialize index with `pickle` to a binary file for S3 storage and container startup loading.
+
+**Rationale:** The BM25 index operates independently from LlamaIndex's retrieval pipeline. Keeping it as a standalone library avoids coupling keyword search to the LlamaIndex framework version. `rank_bm25` has a minimal API surface (fit corpus, get scores) which is all the retrieval abstraction layer needs.
+
+**Alternative Considered:** LlamaIndex `BM25Retriever` — integrates with LlamaIndex's node/document model but introduces framework coupling. Since the retrieval abstraction layer already decouples implementations, framework integration provides no benefit.
+
+**Serialization Note:** Pickle format requires matching Python versions for build and load. The Dockerfile pins the Python version, so this is handled. The `.pkl` file is uploaded to S3 alongside source PDFs and downloaded at container startup (see BM25 Index Lifecycle section).
+
+### Embedding Model Versioning
+
+**Version Pinning:** Use the explicit model ID `text-embedding-3-large` (OpenAI's current stable identifier). If OpenAI introduces versioned variants (e.g., `text-embedding-3-large-2026-01`), pin to the specific version in `core/config.py`.
+
+**Version Recording:** Store the embedding model identifier as metadata in the Qdrant collection configuration (collection metadata field) and in the PostgreSQL `chunks` table (or a dedicated `ingestion_runs` table). This enables detection of version mismatch between stored vectors and the currently configured model.
+
+**Mismatch Detection:** At API startup, compare the embedding model ID in app config against the model ID stored in Qdrant collection metadata. If mismatched, log an `ERROR`-level event and refuse to start — serving queries with incompatible embeddings silently degrades retrieval quality with no error signal.
+
+**Re-Embedding Trigger:** If the embedding model changes, all existing vectors must be re-generated via a full re-ingestion. This uses the existing ingestion pipeline — no new infrastructure needed. The BM25 index is unaffected by embedding model changes.
 
 ## Known Risk: Content IP and Copyright
 
@@ -331,6 +372,14 @@ At least one of the following must be implemented:
 3. **Both** (recommended for maximum protection).
 
 **Contractual Dependency:** Confirm with Solution Tree whether internal testing use is explicitly covered by the existing content license. This is a business action item, not a technical one.
+
+## Pre-Launch Compliance Checklist
+
+_These are blocking items that must be verified before production deployment. They are business/legal actions, not code — each needs an owner and a completion date._
+
+- [ ] **OpenAI DPA executed** — Data Processing Agreement with zero-retention clause confirmed and on file. Required by PRD Section 7.2 (third-party data processing).
+- [ ] **Solution Tree content license reviewed** — Confirm internal testing use of PLC @ Work book content is explicitly covered by the existing license agreement (see Known Risk: Content IP and Copyright above).
+- [ ] **NFR-007 vulnerability scan passing** — CI/CD pipeline Trivy scan step is operational and blocking on critical/high CVEs before any production deployment.
 
 ## Implementation Patterns & Consistency Rules
 
@@ -411,8 +460,19 @@ tests/
 ├── integration/       # Tests against real services (RDS, Redis, Qdrant)
 ├── evaluation/        # RAGAS golden dataset pipeline
 │   └── data/          # Golden dataset files (JSON or CSV)
+├── load/              # Concurrency verification (NFR-003)
+│   └── test_concurrency.py
 └── conftest.py        # Shared fixtures
 ```
+
+**Load Testing (NFR-003):**
+
+NFR-003 requires verification via load test submitting 5 concurrent requests confirming all meet NFR-001's 30-second P95 threshold.
+
+- **Tool:** Python `asyncio` + `httpx` in a standalone script. No need for Locust, k6, or other load testing frameworks for 5 concurrent requests.
+- **Location:** `tests/load/test_concurrency.py`
+- **Execution:** Run manually against staging before production deployment. Not part of the CI pipeline (requires a running API instance). Can be promoted to a GitHub Actions workflow post-MVP.
+- **Pass criteria:** All 5 responses complete with HTTP 200 and wall-clock time under 30 seconds per response.
 
 Rule: Unit tests mirror the source tree. If the source is `src/plc_copilot/services/query_service.py`, the test is `tests/unit/services/test_query_service.py`.
 
@@ -449,7 +509,7 @@ Rule: **Everything is UTC, always.** No local timezone conversion anywhere in th
 
 | ID Type | Format | Generator |
 |---|---|---|
-| `conversation_id` | UUID v4 string | Client-generated (per PRD) |
+| `conversation_id` | String (UUID v4 recommended, not enforced) | Client-generated (per PRD). Server accepts as plain string without UUID validation — intentional technical debt per PRD Decision #9. |
 | `session_id` | UUID v4 string | Server-generated (per PRD) |
 | Database primary keys | Auto-incrementing integer | PostgreSQL `SERIAL` / SQLAlchemy default |
 | `qdrant_id` | UUID v4 string | Generated during ingestion |
@@ -485,8 +545,8 @@ Principle: **Exceptions bubble up, get caught once at the top, and map to PRD er
 |---|---|
 | Library | Python stdlib `logging` module (no third-party logger) |
 | Format | Structured JSON — one JSON object per log line |
-| Required fields per log entry | `timestamp` (ISO 8601 UTC), `level`, `event`, `conversation_id` (when available) |
-| Forbidden fields | Any PII — no `user_id` content, no query text in production logs, no student names (FERPA) |
+| Required fields per log entry | `timestamp` (ISO 8601 UTC), `level`, `event`, `conversation_id` (when available), `user_id` (when in request context — required per PRD Section 7.2) |
+| Forbidden fields | Any PII — no query text in production logs, no student names, no student-identifiable content (FERPA). Note: `user_id` is a required audit log field per PRD Section 7.2 — it is an opaque client-supplied string, not validated PII. |
 | Log levels | `ERROR`: failures requiring attention. `WARNING`: degraded behavior. `INFO`: request lifecycle events. `DEBUG`: internal details, disabled in production |
 | Where logging happens | Service layer and middleware. Not in route handlers. Not in Pydantic models. |
 | Audit log events (PRD Section 7.2) | Emitted as `INFO`-level structured JSON with `event` field |
@@ -526,8 +586,8 @@ Principle: **Retry only external API calls with known transient failure modes.**
 
 | Event Name | When Emitted | Level | Key Fields |
 |---|---|---|---|
-| `query_received` | Request hits query endpoint | INFO | `conversation_id`, `has_session_id` |
-| `query_completed` | Response sent to client | INFO | `conversation_id`, `status`, `duration_ms` |
+| `query_received` | Request hits query endpoint | INFO | `conversation_id`, `user_id`, `has_session_id` |
+| `query_completed` | Response sent to client | INFO | `conversation_id`, `user_id`, `status`, `duration_ms` |
 | `clarification_issued` | System returns `needs_clarification` | INFO | `conversation_id`, `session_id` |
 | `session_resumed` | Follow-up with valid `session_id` | INFO | `conversation_id`, `session_id` |
 | `session_expired` | Follow-up with expired/invalid `session_id` | WARNING | `conversation_id`, `session_id` |
@@ -542,6 +602,9 @@ Principle: **Retry only external API calls with known transient failure modes.**
 | `ingestion_book_failed` | Single book processing failed | ERROR | `book_sku`, `error_type` |
 | `ingestion_completed` | Full pipeline finished | INFO | `books_succeeded`, `books_failed`, `total_duration_ms` |
 | `health_check` | Health endpoint called | DEBUG | `status`, `failed_dependencies` |
+| `auth_success` | Valid API key provided | DEBUG | — |
+| `auth_failed` | Invalid API key provided | WARNING | `reason` ("invalid_key") |
+| `auth_missing` | No API key in request | WARNING | `reason` ("missing_key") |
 
 **Rules for Adding New Events:**
 1. Follow the `subsystem_verb` or `subsystem_noun_verb` pattern
@@ -722,12 +785,14 @@ plc-copilot-api/
 │   │   ├── test_qdrant.py
 │   │   ├── test_redis.py
 │   │   └── test_postgres.py
-│   └── evaluation/
-│       ├── __init__.py
-│       ├── run_evaluation.py       # RAGAS evaluation CLI
-│       ├── run_preference.py       # FR-017 style preference comparison
-│       └── data/
-│           └── golden_dataset.json # Test questions + expected answers
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   ├── run_evaluation.py       # RAGAS evaluation CLI
+│   │   ├── run_preference.py       # FR-017 style preference comparison
+│   │   └── data/
+│   │       └── golden_dataset.json # Test questions + expected answers
+│   └── load/
+│       └── test_concurrency.py     # NFR-003 concurrent request verification
 └── terraform/
     ├── main.tf
     ├── variables.tf

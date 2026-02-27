@@ -3,7 +3,7 @@ title: "Architecture Document Errata — Adversarial Review Round 2"
 subject: "_bmad-output/planning-artifacts/architecture.md"
 date: "2026-02-27"
 review-round: 2
-status: "PENDING — 15 findings awaiting review"
+status: "COMPLETE — all 15 findings applied"
 finding-count: 15
 cross-referenced-against:
   - apps/api/docs/prd-v4.md (v4.6)
@@ -21,21 +21,21 @@ No changes should be applied to architecture.md until this errata is reviewed an
 
 | Finding | Title | Tier | Impact | Status |
 |---|---|---|---|---|
-| F2-01 | `user_id` logging contradicts PRD | 1 — Will cause bugs/compliance failures | FR-019 audit logs will be non-compliant | Pending |
-| F2-02 | Response caching creates stale `session_id` bug | 1 — Will cause bugs/compliance failures | Ambiguous queries served from cache will always fail on follow-up | Pending |
-| F2-03 | Test client cannot authenticate | 1 — Will cause bugs/compliance failures | FR-021 test client cannot call FR-018 protected endpoint | Pending |
-| F2-04 | No vulnerability scanning tool or pipeline step | 2 — Missing architecture for required features | NFR-007 has no implementation path | Pending |
-| F2-05 | Metadata extraction from queries has no design | 2 — Missing architecture for required features | FR-010 extraction accuracy target (0.90) has no architectural support | Pending |
-| F2-06 | BM25 library never named | 2 — Missing architecture for required features | Agents implementing `retrieval/keyword.py` have no tool guidance | Pending |
-| F2-07 | No load testing approach | 2 — Missing architecture for required features | NFR-003 has no verification path | Pending |
-| F2-08 | Single AZ vs. 95% uptime unanalyzed | 3 — Risk accepted without analysis | NFR-002 may not be achievable | Pending |
-| F2-09 | Ingestion competes with Qdrant for resources | 3 — Risk accepted without analysis | API query performance may degrade during ingestion | Pending |
-| F2-10 | FR count is wrong in requirements overview | 4 — Gaps that will bite you later | Document says 13 FRs; PRD has 21 | Pending |
-| F2-11 | `conversation_id` validation mismatch with PRD | 4 — Gaps that will bite you later | Agent may add UUID validation PRD explicitly excluded | Pending |
-| F2-12 | No OpenAI DPA verification step | 4 — Gaps that will bite you later | Compliance dependency has no enforcement mechanism | Pending |
-| F2-13 | No embedding model version strategy | 4 — Gaps that will bite you later | Model update silently breaks all existing vectors | Pending |
-| F2-14 | Post-ingestion Qdrant snapshot not triggered | 4 — Gaps that will bite you later | Up to 8 hours of ingestion work can be lost | Pending |
-| F2-15 | Auth events missing from log event catalog | 4 — Gaps that will bite you later | Agents cannot log auth failures without amending architecture | Pending |
+| F2-01 | `user_id` logging contradicts PRD | 1 — Will cause bugs/compliance failures | FR-019 audit logs will be non-compliant | **Complete** |
+| F2-02 | Response caching creates stale `session_id` bug | 1 — Will cause bugs/compliance failures | Ambiguous queries served from cache will always fail on follow-up | **Complete** |
+| F2-03 | Test client cannot authenticate | 1 — Will cause bugs/compliance failures | FR-021 test client cannot call FR-018 protected endpoint | **Complete** |
+| F2-04 | No vulnerability scanning tool or pipeline step | 2 — Missing architecture for required features | NFR-007 has no implementation path | **Complete** |
+| F2-05 | Metadata extraction from queries has no design | 2 — Missing architecture for required features | FR-010 extraction accuracy target (0.90) has no architectural support | **Complete** |
+| F2-06 | BM25 library never named | 2 — Missing architecture for required features | Agents implementing `retrieval/keyword.py` have no tool guidance | **Complete** |
+| F2-07 | No load testing approach | 2 — Missing architecture for required features | NFR-003 has no verification path | **Complete** |
+| F2-08 | Single AZ vs. 95% uptime unanalyzed | 3 — Risk accepted without analysis | NFR-002 may not be achievable | **Complete** |
+| F2-09 | Ingestion competes with Qdrant for resources | 3 — Risk accepted without analysis | API query performance may degrade during ingestion | **Complete** |
+| F2-10 | FR count is wrong in requirements overview | 4 — Gaps that will bite you later | Document says 13 FRs; PRD has 21 | **Complete** |
+| F2-11 | `conversation_id` validation mismatch with PRD | 4 — Gaps that will bite you later | Agent may add UUID validation PRD explicitly excluded | **Complete** |
+| F2-12 | No OpenAI DPA verification step | 4 — Gaps that will bite you later | Compliance dependency has no enforcement mechanism | **Complete** |
+| F2-13 | No embedding model version strategy | 4 — Gaps that will bite you later | Model update silently breaks all existing vectors | **Complete** |
+| F2-14 | Post-ingestion Qdrant snapshot not triggered | 4 — Gaps that will bite you later | Up to 8 hours of ingestion work can be lost | **Complete** |
+| F2-15 | Auth events missing from log event catalog | 4 — Gaps that will bite you later | Agents cannot log auth failures without amending architecture | **Complete** |
 
 ---
 
@@ -460,34 +460,34 @@ Add authentication events to the event catalog:
 Apply changes to architecture.md in tier order (Tier 1 first — these block implementation):
 
 ### Tier 1 — Fix Before Implementation Starts
-- [ ] F2-01: Fix `user_id` logging — add to required audit fields, remove from forbidden list
-- [ ] F2-02: Add cache scope rule — only cache `success` responses
-- [ ] F2-03: Add test client auth approach — API key input field with `sessionStorage`
+- [x] F2-01: Fix `user_id` logging — add to required audit fields, remove from forbidden list
+- [x] F2-02: Add cache scope rule — only cache `success` responses
+- [x] F2-03: Add test client auth approach — API key input field with `sessionStorage`
 
 ### Tier 2 — Fix Before Affected Features Are Implemented
-- [ ] F2-04: Add Trivy scanning step to CI/CD pipeline description
-- [ ] F2-05: Add metadata extraction approach for FR-010
-- [ ] F2-06: Name BM25 library (`rank_bm25`) with rationale
-- [ ] F2-07: Add load testing approach for NFR-003
+- [x] F2-04: Add Trivy scanning step to CI/CD pipeline description
+- [x] F2-05: Add metadata extraction approach for FR-010
+- [x] F2-06: Name BM25 library (`rank_bm25`) with rationale
+- [x] F2-07: Add load testing approach for NFR-003
 
 ### Tier 3 — Document Risk Acceptance
-- [ ] F2-08: Add single-AZ risk analysis with availability math
-- [ ] F2-09: Add ingestion resource contention analysis with scheduling mitigation
+- [x] F2-08: Add single-AZ risk analysis with availability math
+- [x] F2-09: Add ingestion resource contention analysis with scheduling mitigation
 
 ### Tier 4 — Fix Before These Areas Are Built
-- [ ] F2-10: Correct FR count from 13 to 21; add missing subsystem groupings
-- [ ] F2-11: Mark `conversation_id` as "not enforced" to match PRD Decision #9
-- [ ] F2-12: Add pre-launch compliance checklist with DPA verification
-- [ ] F2-13: Add embedding model versioning strategy
-- [ ] F2-14: Add post-ingestion Qdrant snapshot to completion criteria
-- [ ] F2-15: Add auth events to log event catalog
+- [x] F2-10: Correct FR count from 13 to 21; add missing subsystem groupings
+- [x] F2-11: Mark `conversation_id` as "not enforced" to match PRD Decision #9
+- [x] F2-12: Add pre-launch compliance checklist with DPA verification
+- [x] F2-13: Add embedding model versioning strategy
+- [x] F2-14: Add post-ingestion Qdrant snapshot to completion criteria
+- [x] F2-15: Add auth events to log event catalog
 
 ### Post-Application Verification
-- [ ] Search for "user_id" in forbidden fields — should not appear
-- [ ] Search for "cache" — confirm scope rule exists limiting to `success` responses
-- [ ] Confirm test client section addresses API key handling
-- [ ] Confirm CI/CD pipeline includes scanning step between build and push
-- [ ] Confirm FR count matches PRD (21 FRs)
-- [ ] Confirm `conversation_id` entry says "not enforced"
-- [ ] Confirm event catalog includes `auth_success`, `auth_failed`, `auth_missing`
-- [ ] Confirm ingestion completion criteria include Qdrant snapshot
+- [x] Search for "user_id" in forbidden fields — should not appear
+- [x] Search for "cache" — confirm scope rule exists limiting to `success` responses
+- [x] Confirm test client section addresses API key handling
+- [x] Confirm CI/CD pipeline includes scanning step between build and push
+- [x] Confirm FR count matches PRD (21 FRs)
+- [x] Confirm `conversation_id` entry says "not enforced"
+- [x] Confirm event catalog includes `auth_success`, `auth_failed`, `auth_missing`
+- [x] Confirm ingestion completion criteria include Qdrant snapshot
