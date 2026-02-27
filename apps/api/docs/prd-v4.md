@@ -1,6 +1,6 @@
 ---
 title: "PRD: PLC Coach Service (MVP)"
-version: "4.3"
+version: "4.5"
 date: "2026-02-27"
 author: "LasChicas.ai"
 classification:
@@ -12,6 +12,10 @@ stepsCompleted: ['step-e-01-discovery', 'step-e-02-review', 'step-e-03-edit']
 lastEdited: '2026-02-27'
 editHistory:
   - date: '2026-02-27'
+    changes: 'Stakeholder round table: split FR-014 (mega-requirement) into FR-014 (reference-free evaluation), FR-015 (reference-based evaluation), FR-016 (baseline comparison) for clean epic/story decomposition'
+  - date: '2026-02-27'
+    changes: 'Architect review: added query pipeline stage ordering to Section 3.2, added NFR-008 (ingestion pipeline duration, 8h ceiling), added NFR-009 (cold start tolerance, 120s readiness)'
+  - date: '2026-02-27'
     changes: 'Validation-driven edit: rewrote 5 FRs (006-009, 013) to [Actor] can [capability] format, added FR-014 for evaluation pipeline (closing Journey C traceability gap), added measurement methods to 4 NFRs (003, 005, 006, 007)'
   - date: '2026-02-26'
     changes: 'Validation-driven edit: added User Journeys, NFR section, restructured FRs with IDs and test criteria, removed implementation leakage from requirements, added baseline methodology and AC #14'
@@ -21,7 +25,7 @@ editHistory:
 
 **Document Purpose:** This PRD defines **what** the MVP of the PLC Coach Service must do, **why** it matters, and the key architectural decisions that shape the product. It is the source of truth for product decisions. Where implementation details are included (such as technology selections in the Architecture section), they document confirmed decisions essential for understanding the product's constraints. Detailed implementation guidance — including query pipeline execution order, chunking parameters, and infrastructure configuration — is documented in the companion Technical Specification.
 
-**Author:** LasChicas.ai | **Version:** 4.3 | **Date:** February 27, 2026
+**Author:** LasChicas.ai | **Version:** 4.5 | **Date:** February 27, 2026
 
 ---
 
@@ -135,7 +139,7 @@ Test criteria: Portrait pages produce structured chunks with hierarchy preserved
 
 ### 3.2. Query Engine
 
-The query engine handles four distinct query types through a multi-stage process.
+The query engine handles four distinct query types through a multi-stage process. Every inbound query passes through the following decision stages in order: (1) out-of-scope detection (FR-009), (2) ambiguity detection (FR-007), (3) metadata filter extraction (FR-010), (4) hybrid retrieval and re-ranking (Section 3.3), and (5) answer generation (FR-005). A query that is rejected at any stage does not proceed to subsequent stages.
 
 **FR-005 — Direct Answer:** The API consumer can submit an unambiguous, in-scope query and receive a grounded, cited answer in a single round trip. Test criteria: The response includes a `success` status with populated `answer` and `sources` fields. Source citations include book title, SKU, page number, and text excerpt.
 
@@ -171,7 +175,11 @@ The retrieval mechanism combines semantic and keyword search to maximize the qua
 
 The evaluation pipeline validates system quality against the golden dataset and the baseline comparison defined in Section 2.3.
 
-**FR-014 — Evaluation Pipeline Execution:** The evaluator can run the RAGAS evaluation pipeline against the golden dataset and receive a scored report with Faithfulness, Answer Relevancy, Context Precision, and Context Recall metrics per query. In reference-free mode (Phase 0-B), the pipeline produces Faithfulness and Answer Relevancy scores. In full reference-based mode (Phase 3 Track A), the pipeline additionally produces Context Precision and Context Recall scores using the *Concise Answers* book as ground truth. The evaluator can also run the same golden dataset questions through raw GPT-4o without RAG context and compare the resulting scores against the RAG pipeline scores to validate the core hypothesis. Test criteria: The pipeline produces per-query scores for all golden dataset in-scope questions; aggregate scores meet the thresholds defined in Section 2.3; the baseline comparison report shows RAG pipeline scores alongside raw GPT-4o scores for Faithfulness and Answer Relevancy; the evaluator can identify underperforming queries from the output.
+**FR-014 — Reference-Free Evaluation:** The evaluator can run the RAGAS evaluation pipeline in reference-free mode against the golden dataset and receive a scored report with Faithfulness and Answer Relevancy metrics per query. The evaluator can identify underperforming queries from the output. This is the primary quality signal during development (Phase 0-B). Test criteria: The pipeline produces per-query Faithfulness and Answer Relevancy scores for all golden dataset in-scope questions; the evaluator can sort or filter results to surface queries scoring below the thresholds defined in Section 2.3.
+
+**FR-015 — Reference-Based Evaluation:** The evaluator can run the RAGAS evaluation pipeline in full reference-based mode using the *Concise Answers* book as ground truth, producing Context Precision and Context Recall scores in addition to the reference-free metrics from FR-014. This is the final quality validation (Phase 3 Track A). Test criteria: The pipeline produces per-query scores for all four metrics (Faithfulness, Answer Relevancy, Context Precision, Context Recall) for golden dataset in-scope questions that map to *Concise Answers* entries; aggregate scores meet the thresholds defined in Section 2.3.
+
+**FR-016 — Baseline Comparison:** The evaluator can run the same golden dataset in-scope questions through raw GPT-4o without RAG context and receive a comparison report showing RAG pipeline scores alongside baseline scores for Faithfulness and Answer Relevancy. Test criteria: The comparison report includes per-query and aggregate scores for both the RAG pipeline and the baseline; the RAG pipeline exceeds the baseline on both metrics per the methodology defined in Section 2.3.
 
 
 ## 4. Data Models & Schema
@@ -497,6 +505,10 @@ Baseline targets for the MVP, scoped to an internal testing tool with a small us
 **NFR-006 — Backup & Recovery:** Relational database automated backups are enabled with a 7-day retention period. Vector store data can be reconstructed by re-running the ingestion pipeline from source PDFs in cloud storage. RTO: 4 hours. RPO: 24 hours. Verified via a pre-launch recovery drill: restore the relational database from backup and re-run the ingestion pipeline to reconstruct the vector store, confirming both complete within the RTO window. See Section 6 for tooling.
 
 **NFR-007 — Security Scanning:** Container images are scanned for known vulnerabilities before deployment. Critical and high-severity CVEs must be resolved before production deployment. Verified via an automated scan step in the CI/CD pipeline (Section 6.2) that fails the build if critical or high-severity CVEs are detected.
+
+**NFR-008 — Ingestion Pipeline Duration:** The full ingestion pipeline (all 25 books) completes within 8 hours of wall-clock time when triggered manually. Individual book failures do not block the remaining corpus. Verified via a timed end-to-end ingestion run with completion logged per book. See Section 6 for tooling.
+
+**NFR-009 — Cold Start Tolerance:** The API container is available to serve requests within 120 seconds of a new task starting (including model loading). During the internal testing phase, cold starts after idle periods are acceptable — the container is not required to stay warm. Verified via a health-check probe that confirms readiness within the 120-second window after a fresh deployment. See Section 6 for tooling.
 
 
 ## 9. Acceptance Criteria
