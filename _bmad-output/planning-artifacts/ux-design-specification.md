@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 inputDocuments:
   - apps/api/docs/prd-v4.md
   - _bmad-output/planning-artifacts/architecture.md
@@ -7,8 +7,8 @@ workflowType: 'ux-design'
 project_name: 'plc-copilot'
 user_name: 'Claudia'
 date: '2026-02-27'
-lastStep: 10
-status: 'in-progress'
+lastStep: 14
+status: 'complete'
 ---
 
 # UX Design Specification: PLC Coach Service
@@ -866,3 +866,368 @@ automatically.
 
 5. **Progress always visible** — Sidebar, banner, and progress bar
    provide three layers of orientation in evaluation mode.
+
+---
+
+## UX Consistency Patterns
+
+### Button Hierarchy
+
+The test client uses four button levels. Every interactive moment maps to exactly one level — no mixing of primary actions on the same surface.
+
+| Level | shadcn/ui variant | Use When |
+|---|---|---|
+| **Primary** | `default` (solid) | The one expected next action: Submit Query, Submit Preference, Start Session |
+| **Secondary** | `outline` | Supplementary actions that support but don't advance the flow: Clarify, View Full Citation |
+| **Destructive** | `destructive` | Irreversible or session-ending actions: Abandon Session |
+| **Ghost / Text** | `ghost` or `link` | Low-weight navigation and optional actions: Change Mode, Skip, Cancel |
+
+**Rules:**
+
+- Maximum one primary button per visible surface area (per panel in ABComparisonPanel, per form)
+- Destructive actions always appear as ghost/text until a confirmation step — only then elevate to destructive variant
+- Icon-only buttons (copy citation, expand) always have `aria-label` and a tooltip on hover
+- Loading state: primary button switches to disabled + spinner + in-progress label ("Submitting…") — never hidden
+
+---
+
+### Feedback Patterns
+
+Four feedback types, each with a distinct visual channel so colour-blind users aren't relying on hue alone.
+
+#### Success
+
+- **When:** Response rendered successfully (Journey A), preference recorded (Journey C)
+- **Visual:** `toast` (bottom-right, 4s auto-dismiss) — green left border + checkmark icon
+- **Copy pattern:** Action-first — "Preference saved" not "Your preference has been saved"
+- **No modal** for success — never block the next action
+
+#### Error — Recoverable
+
+- **When:** Query returned `needs_clarification`, validation failed on EvaluationForm
+- **Visual:** Inline — red border on the offending field + error message directly below it (not in a toast)
+- **Copy pattern:** State what went wrong + what to do — "Select a style preference to continue"
+- **Field focus:** Auto-focus first errored field on submit attempt
+
+#### Error — System
+
+- **When:** API call failed (network, 5xx), session data could not be restored
+- **Visual:** Full-width `alert` banner at top of content area — red, icon left, dismiss X right
+- **Copy pattern:** Plain English, no codes — "The service isn't responding right now. Try again in a moment."
+- **Recovery:** Always include a retry action inline in the banner
+
+#### Warning
+
+- **When:** Cold start detected (NFR-009 — up to 120s), session near expiry (if implemented), response was auto-interpreted
+- **Visual:** `alert` — amber, icon left
+- **ColdStartLoader:** Replaces the normal skeleton after 5s — shows progressive warm-up messaging; does not say "loading" without context
+- **Interpreted query:** Amber banner above response block, shows original vs. interpreted — not blocking
+
+#### Info
+
+- **When:** Out-of-scope response, testing banner (non-production notice), session setup guidance
+- **Visual:** `alert` — neutral/blue, icon left
+- **Out-of-scope:** Full-width info alert with friendly explanation — never a raw 404-style message
+
+---
+
+### Form Patterns
+
+Two main forms in the system: the **query input** (Journeys A and C) and the **EvaluationForm** (Journey C only).
+
+#### Query Input
+
+- Single `<textarea>` — auto-grows to 4 lines max, then scrolls internally
+- **Character guidance** (not a hard limit): soft indicator at 500 chars — "Detailed queries get better results"
+- Submit on `Cmd/Ctrl + Enter` keyboard shortcut, labelled in placeholder text
+- Empty submit: button remains disabled while field is empty — no error state needed
+- Disabled during response loading — prevents double-submit
+
+#### EvaluationForm — Required Fields
+
+- **Style Preference** (radio group): "Book-Faithful" / "Coaching-Oriented" — required, no default selection
+- **Correctness Assessment** (radio group, 4 options): required, no default selection
+- **Notes** (textarea): optional, labelled "Optional notes"
+
+**Validation behaviour:**
+
+- Validate on submit attempt only (not on blur) — evaluation is deliberate, not a casual form
+- Both required radio groups highlighted with red border + error message if unselected on submit
+- Form scrolls to first error automatically
+- After successful submit: form resets and advances to next pair (mid-session) or shows completion state
+
+**shadcn/ui components:** `RadioGroup`, `Label`, `Textarea`, `Button` — no custom validation library needed
+
+---
+
+### Navigation Patterns
+
+#### Mode Switching (ModeSelector)
+
+- Persistent tab-style switcher at the top of the shell — always visible
+- Switching mode while an evaluation session is active: triggers a confirmation dialog — "Leave evaluation session? Your progress will be saved." (Yes / Stay)
+- Active mode tab: visually distinct (underline + bold), `aria-selected="true"`
+- Keyboard: arrow keys cycle between tabs
+
+#### Within-Session Navigation (Journey C)
+
+- EvaluationSidebar shows a numbered question list — current item highlighted
+- Forward progression only by default — cannot advance until preference + correctness are submitted
+- Previous items: viewable as read-only sidebar entries, not editable — preference is final on submit
+- Session progress displayed as "3 of 47" — fraction not percentage (avoids false precision on small datasets)
+
+#### Clarification Thread (Journey A)
+
+- Threaded replies appear beneath the original response block — not a separate page or modal
+- "Clarify →" button appends a follow-up query input below the response
+- Thread depth: unlimited in the API; ClarificationThread collapses threads > 3 with "Show full conversation" toggle
+
+---
+
+### Modal and Overlay Patterns
+
+Used sparingly — only when the user must make a decision before proceeding.
+
+| Situation | Pattern | Reason |
+|---|---|---|
+| Session Setup (Journey C start) | Full `Dialog` modal | Configuration required before session begins — blocking is appropriate |
+| Abandon Session confirmation | `AlertDialog` | Destructive + irreversible — must be deliberate |
+| Mode switch during active session | `AlertDialog` | Session state at risk |
+| Citation detail | Sheet / drawer | Non-blocking, supplementary info |
+
+**Rules:**
+
+- No auto-opening modals — always triggered by explicit user action
+- ESC always closes non-blocking overlays (sheets, tooltips); does not close `AlertDialog` (must use Cancel button)
+- All modals trap focus and return focus to the trigger element on close
+- Mobile: sheet/drawer slides from bottom instead of centre-screen modal
+
+---
+
+### Empty States and Loading States
+
+#### Empty — No Query Yet (Journey A entry)
+
+- Centred in the response area: icon + heading + one-line prompt
+- Example: [search icon] "Ask your first PLC question" / "Type a question about PLCs to get started"
+- No skeleton loaders — content hasn't been requested yet
+
+#### Loading — Query Submitted (normal, < 5s expected)
+
+- Response area shows a subtle animated skeleton (3 placeholder lines)
+- Submit button enters disabled + spinner state
+- No accompanying text — skeleton alone communicates "something is coming"
+
+#### Loading — Cold Start (ColdStartLoader, up to 120s per NFR-009)
+
+- Replaces skeleton after 5s without a response
+- Progressive messaging sequence:
+  - 0–5s: skeleton only
+  - 5s: "Warming up the service…"
+  - 20s: "Still waking up — this can take up to two minutes on first use"
+  - 60s: "Almost ready — the service is nearly warm"
+  - 120s: Transition to system error state with retry button
+- Progress indicator: indeterminate bar (not a spinner — communicates duration not just activity)
+- TestingBanner remains visible throughout — no layout shift during warm-up
+
+#### Empty — Session Complete (Journey C)
+
+- Minimal celebration state: checkmark icon + "Session complete" heading + summary stats
+- "Download results" action (if implemented) or "Start a new session" CTA
+- Does not auto-navigate away
+
+#### Error — Session Cannot Resume
+
+- Info alert: "We found a previous session but couldn't restore it. Start fresh or contact your administrator."
+- Two CTAs: "Start New Session" (primary) / "Try Again" (ghost)
+
+---
+
+### Design System Integration (Tailwind + shadcn/ui)
+
+**shadcn/ui component mapping:**
+
+| UI need | Component |
+|---|---|
+| All four feedback alert types | `Alert` + `AlertDescription` |
+| Success toast notifications | `Sonner` (preferred over shadcn `Toast` for stacking) |
+| Blocking decision modals | `Dialog` (setup) and `AlertDialog` (destructive) |
+| Evaluation radio inputs | `RadioGroup` + `RadioGroupItem` |
+| Mode switcher tabs | `Tabs` |
+| Cold start progress bar | `Progress` (indeterminate) |
+| Citation drawer | `Sheet` |
+
+**Custom Tailwind rules:**
+
+- `data-[state=error]` variants on form fields — avoid JS-toggled class strings
+- All colour tokens via CSS variables (shadcn convention) — no hardcoded hex in component files
+- `focus-visible` ring: 2px offset, brand colour — never remove outline, only restyle it
+- Animation budget: `transition-all duration-150 ease-in-out` as default for all UI chrome — nothing slower
+
+---
+
+## Responsive Design & Accessibility
+
+### Responsive Strategy
+
+**Primary context: Desktop (1024px+)**
+
+The test client is designed desktop-first. This is where leadership demos happen, where developers run evaluation sessions, and where the A/B comparison panel makes the most sense — two response blocks side by side at full reading width.
+
+Desktop layout:
+- Two-column shell in Evaluation Session mode: EvaluationSidebar (240px fixed) + main content area (fills remaining width)
+- Free Query mode: single-column, max-width 760px centred — preserves readable line lengths
+- ABComparisonPanel: two equal columns with independent scroll, horizontal divider
+
+**Secondary context: Tablet (768px–1023px)**
+
+Tablet support enables demos on iPads in conference rooms and informal walkthroughs. Layout adapts meaningfully rather than just scaling down.
+
+Tablet layout:
+- EvaluationSidebar collapses to a slide-in drawer (triggered by progress chip "3 of 47 →") — full content area recovers
+- ABComparisonPanel: landscape orientation → side-by-side maintained (narrower columns); portrait orientation → stacked (A above B, clearly labelled)
+- Touch targets: minimum 44×44px for all interactive elements
+
+**Tertiary context: Mobile (< 768px)**
+
+Mobile is supported but not optimised for deep evaluation sessions — a 47-question A/B session on a phone is not the intended experience. Free Query mode works well on mobile.
+
+Mobile layout:
+- All panels stack vertically
+- ModeSelector: full-width tab bar
+- ABComparisonPanel: always stacked (A above B), with explicit section headers "Response A" / "Response B"
+- EvaluationSidebar: accessible via a floating progress chip at the bottom — expands to bottom sheet
+- TestingBanner: collapses to single-line with truncation on mobile (full text accessible via expand)
+
+---
+
+### Breakpoint Strategy
+
+Tailwind CSS default breakpoints — no custom breakpoints needed:
+
+| Breakpoint | Width | Layout change |
+|---|---|---|
+| `default` (mobile) | 0–639px | Single column, stacked panels, bottom-sheet sidebar |
+| `sm` | 640px | Minor spacing adjustments — no major layout shift |
+| `md` | 768px | ABComparisonPanel shifts to side-by-side (landscape); sidebar persists |
+| `lg` | 1024px | Two-column shell with fixed EvaluationSidebar; full desktop layout |
+| `xl` | 1280px | Max-width cap applied to content area — no layout change, just breathing room |
+| `2xl` | 1536px | Content area max-width enforced (800px for free query, 1100px for A/B panel) |
+
+**Mobile-first implementation:** All Tailwind classes written mobile-first (`md:flex-row`, `lg:w-60`, etc.) — default styles handle mobile, responsive prefixes handle larger viewports.
+
+---
+
+### Accessibility Strategy
+
+**Target compliance: WCAG 2.1 Level AA**
+
+Rationale: This is an internal tool, but it serves a mixed audience including non-technical leadership and press team members. AA is the professional standard — achievable with shadcn/ui's Radix primitives and protects against the widest range of assistive technology users without the AAA overhead.
+
+#### ABComparisonPanel
+
+The most accessibility-complex component — two responses side by side with a shared evaluation form.
+
+- Each column wrapped in `<section aria-labelledby>` — "Response A: Book-Faithful Style" and "Response B: Coaching-Oriented Style"
+- Response text in `<article>` elements with appropriate heading hierarchy
+- Keyboard tab order: A column → B column → preference radio → correctness radio → notes → submit
+- Screen reader announcement on preference selection: native RadioGroup behaviour via Radix
+
+#### ColdStartLoader
+
+Progressive warm-up messages must be announced to screen readers without overwhelming.
+
+- `<div role="status" aria-live="polite">` wraps the message — `polite` not `assertive` (non-urgent)
+- Message changes trigger natural announcement without interrupting active reading
+- Indeterminate progress bar: `<progress aria-label="Service warming up">` — no value attribute (indeterminate)
+
+#### EvaluationForm
+
+- Each `RadioGroup` has a visible label via shadcn/ui `Label` hierarchy
+- Required fields marked with `aria-required="true"` and visually (asterisk + "required" in label)
+- Error messages linked via `aria-describedby` — screen readers announce error with field
+- Focus management: after submit with errors, focus moves to first errored field; after successful submit, focus moves to first field of next pair
+
+#### Clarification Thread
+
+- Thread container: `role="log" aria-label="Conversation"` — screen readers treat as live region history
+- Each message: `role="article"` with appropriate `aria-label` (user question vs. service response)
+- New response announcement: `aria-live="polite"` on the response container
+
+#### Colour Contrast
+
+- Body text on background: minimum 7:1 — neutral-900 on white
+- Secondary/muted text: minimum 4.5:1 — neutral-500 on white (verify in implementation)
+- Warning banner: dark text (neutral-900) on amber-100 background — passes 4.5:1
+- Interactive states: never communicate state by colour change alone — always pair with border, underline, or icon change
+
+#### Keyboard Navigation
+
+| Interaction | Keyboard behaviour |
+|---|---|
+| Submit query | `Cmd/Ctrl + Enter` in textarea |
+| Mode switching | `Arrow keys` within tab bar |
+| Clarification | `Tab` to "Clarify" button, `Enter` to activate |
+| EvaluationForm radio | `Arrow keys` within radio group |
+| Session advance | Auto-advance on submit — no extra keystroke |
+| Dialog / AlertDialog | `Esc` for `Dialog`; Cancel button only for `AlertDialog` |
+| Citation drawer | `Esc` to close, focus returns to trigger |
+
+#### Skip Links
+
+- `<a href="#main-content" className="sr-only focus:not-sr-only">` as first element in `<body>`
+- Secondary skip: "Skip to evaluation form" on ABComparisonPanel screens
+
+---
+
+### Testing Strategy
+
+**Responsive testing:**
+
+| Tool / Method | What it catches |
+|---|---|
+| Chrome DevTools device emulation | Quick layout verification at all breakpoints |
+| Real iPad (Safari) | ABComparisonPanel portrait/landscape behaviour |
+| Real iPhone (Safari) | Mobile stacking and bottom-sheet sidebar |
+| Firefox Responsive Design Mode | Cross-browser layout consistency |
+| `eslint-plugin-tailwindcss` | Responsive class conflicts at build time |
+
+**Accessibility testing:**
+
+| Tool / Method | What it catches |
+|---|---|
+| axe DevTools (browser extension) | Automated WCAG violations — run on every new screen |
+| VoiceOver (macOS + iOS) | Screen reader flow for primary target device context |
+| Keyboard-only navigation | Tab order, focus traps, skip links — manual per screen |
+| Colour contrast analyser | Manual spot-check for custom colour combinations |
+| `eslint-plugin-jsx-a11y` | Missing ARIA labels and roles at build time |
+
+No automated CI accessibility gate required for MVP — manual axe scan before each release is sufficient for an internal tool.
+
+---
+
+### Implementation Guidelines
+
+**Responsive development rules:**
+
+- All layout uses Tailwind responsive prefixes — no custom `@media` queries in component files
+- Never use fixed `px` widths for content containers — use `max-w-*` with `w-full`
+- Touch targets: use `min-h-[44px] min-w-[44px]` on all clickable elements at `md:` and below
+- `ABComparisonPanel` responsive behaviour isolated to that component — no global layout shifts
+
+**Accessibility development rules:**
+
+- Every interactive element must be reachable by keyboard before a PR is merged
+- Every meaningful icon must have `aria-label` or descriptive sibling text
+- Every form error message must be associated via `aria-describedby`
+- Never use `tabIndex={0}` on non-interactive elements — use semantic HTML instead
+- `Dialog` and `AlertDialog`: use shadcn/ui components without modification — Radix handles focus trap and scroll lock
+- Colour: use shadcn/ui CSS variables (`hsl(var(--foreground))`) not raw hex
+- `aria-live` regions: declare in the DOM on page load, populate dynamically — do not mount/unmount live regions
+
+**Build-time guardrails (recommended devDependencies):**
+
+```
+eslint-plugin-jsx-a11y
+eslint-plugin-tailwindcss
+```
