@@ -1,0 +1,108 @@
+# generated: 2026-02-27
+# project: plc-copilot
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-27
+project: plc-copilot
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Scaffold & Core API
+  epic-1: backlog
+  1-1-project-initialization-and-directory-structure: backlog
+  1-2-core-configuration-and-exception-hierarchy: backlog
+  1-3-database-foundation: backlog
+  1-4-redis-connection-pool-and-service-skeletons: backlog
+  1-5-structured-json-audit-logging: backlog
+  1-6-api-key-authentication-middleware: backlog
+  1-7-health-check-endpoint: backlog
+  1-8-minimal-test-client: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Infrastructure & CI/CD
+  epic-2: backlog
+  2-1-terraform-foundation-vpc-networking-and-s3-backend: backlog
+  2-2-terraform-data-stores-rds-elasticache-s3-bucket: backlog
+  2-3-terraform-compute-qdrant-ec2-and-ecs-fargate: backlog
+  2-4-terraform-observability-cloudwatch-log-groups-and-backup-monitoring: backlog
+  2-5-ci-cd-pipeline-pr-checks-and-staging-deploy: backlog
+  2-6-ci-cd-pipeline-production-promotion-and-ingestion-trigger: backlog
+  2-7-pre-launch-compliance-checklist-documentation: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Content Ingestion Pipeline
+  epic-3: backlog
+  3-1-corpus-scan-and-validation-report: backlog
+  3-2-database-schema-for-books-chunks-and-vocabulary: backlog
+  3-3-parsing-spike-llmsherpa-and-gpt-4o-vision-validation: backlog
+  3-4-portrait-page-parser-pymupdf-classification-and-llmsherpa-structure: backlog
+  3-5-landscape-page-parser-gpt-4o-vision: backlog
+  3-6-chunk-metadata-tagging-and-dual-store-storage: backlog
+  3-7-full-corpus-ingestion-orchestrator: backlog
+  3-8-qdrant-snapshots-and-post-ingestion-backup: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: RAG Query Engine
+  epic-4: backlog
+  4-1-retrieval-abstraction-layer-and-qdrant-vector-search: backlog
+  4-2-bm25-keyword-search: backlog
+  4-3-cross-encoder-re-ranking: backlog
+  4-4-hybrid-retrieval-orchestrator: backlog
+  4-5-dynamic-metadata-extraction-and-filtering: backlog
+  4-6-query-service-and-llm-generation: backlog
+  4-7-response-cache-implementation: backlog
+  4-8-query-route-health-check-completion-and-startup-sequence: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Conversational Query Intelligence
+  epic-5: backlog
+  5-1-out-of-scope-detection-and-refusal: backlog
+  5-2-ambiguity-detection-logic: backlog
+  5-3-session-service-implementation: backlog
+  5-4-clarification-flow-single-question-response: backlog
+  5-5-query-router-integration: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Quality Evaluation & Validation
+  epic-6: backlog
+  6-1-golden-dataset-and-evaluation-framework: backlog
+  6-2-ragas-reference-free-evaluation: backlog
+  6-3-ragas-reference-based-evaluation: backlog
+  6-4-baseline-comparison-rag-vs-raw-gpt-4o: backlog
+  6-5-retrieval-ablation-tests: backlog
+  6-6-style-preference-data-collection: backlog
+  6-7-load-test-concurrent-user-verification: backlog
+  epic-6-retrospective: optional
