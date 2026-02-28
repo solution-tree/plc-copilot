@@ -1,3 +1,5 @@
+> **Status:** IMPLEMENTED — All 9 edits applied to `epics.md` on 2026-02-27. This document is archived for decision history.
+
 # Sprint Change Proposal — Epics Review Findings Implementation
 
 **Date:** 2026-02-27
