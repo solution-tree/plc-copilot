@@ -48,6 +48,17 @@ htmlcov/
 # Serialized artifacts
 *.pkl
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
 # BMAD framework and generated outputs
 _bmad/
 _bmad-output/
