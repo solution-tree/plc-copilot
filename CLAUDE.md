@@ -8,8 +8,8 @@ RAG-powered API for educator PLC (Professional Learning Community) questions. Si
 
 | Document | Path | Scope |
 |---|---|---|
-| PRD | `apps/api/docs/prd.md` | Product requirements, acceptance criteria, API contract |
-| Architecture | `apps/api/docs/architecture.md` | All technical decisions, patterns, structure |
+| PRD | `_bmad-output/planning-artifacts/prd.md` | Product requirements, acceptance criteria, API contract |
+| Architecture | `_bmad-output/planning-artifacts/architecture.md` | All technical decisions, patterns, structure |
 | FERPA Research | `apps/api/docs/research/ferpa-FINAL.md` | Compliance constraints |
 
 **Architecture doc wins on conflicts.** If this file contradicts the architecture doc, the architecture doc is correct.
