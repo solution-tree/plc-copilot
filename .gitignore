@@ -50,5 +50,4 @@ htmlcov/
 
 # BMAD framework and generated outputs
 _bmad/
-_bmad-output/
 .claude/commands/
