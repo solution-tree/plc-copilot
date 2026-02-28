@@ -1,15 +1,18 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
 
 # Build outputs
 dist/
 build/
 out/
-.next/
-.nuxt/
-.turbo/
 
 # Environment variables
 .env
@@ -18,8 +21,6 @@ out/
 
 # Logs
 *.log
-npm-debug.log*
-pnpm-debug.log*
 
 # OS files
 .DS_Store
@@ -35,11 +36,17 @@ Thumbs.db
 
 # Test & coverage
 coverage/
-.nyc_output/
+htmlcov/
+.coverage
+.coverage.*
 
-# Cache
-.cache/
-*.tsbuildinfo
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Serialized artifacts
+*.pkl
 
 # BMAD framework and generated outputs
 _bmad/
